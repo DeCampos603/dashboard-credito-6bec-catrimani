@@ -1157,7 +1157,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
     )
 
     disp = "" if (u is UNIDADES[0]) else ' style="display:none"'
-    frag = f"""<section class="unidade" data-key="{sfx}" data-sigla="{esc(u['sigla'])}"{disp}>
+    frag = f"""<section class="unidade" id="secao-{sfx}" data-key="{sfx}" data-sigla="{esc(u['sigla'])}"{disp}>
   <div class="toptabs" role="tablist" aria-label="Visões do painel">
     <button class="toptab on" role="tab" aria-selected="true" onclick="bcmsView(this,'resumo')">📋 Resumo Executivo & Créditos em Tela</button>
     <button class="toptab" role="tab" aria-selected="false" onclick="bcmsView(this,'completo')">📊 Detalhamento Completo & Gráficos</button>
@@ -1668,23 +1668,21 @@ def secao_historico_ncs(res, hist, data_str, periodo):
         + '</optgroup>'
     )
 
+    om_unicas = sorted(list(set(it["om_sigla"] for it in hist_list if it.get("om_sigla"))))
+    opt_oms = "".join(f'<option value="{esc(om)}">{esc(om)}</option>' for om in om_unicas)
+
     tools_hist_html = (
         f'<div class="tbl-tools">'
         f'<label class="visually-hidden" for="flt-hist-busca">Buscar</label>'
         f'<input type="search" id="flt-hist-busca" class="tbl-search" placeholder="Buscar por NC, Justificativa, UG, PTRES, ND ou PI…" oninput="bcmsFiltraHistorico()">'
-        f'<button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportHistoricoExcel()" title="Baixar histórico consolidado das OMDS em planilha formatada para Excel"><span class="btn-excel-ic">📊</span> Exportar Histórico Completo (Excel)</button>'
+        f'<button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportHistoricoExcel()" title="Baixar histórico consolidado em planilha formatada para Excel"><span class="btn-excel-ic">📊</span> Exportar Histórico Completo (Excel)</button>'
         f'<span class="tbl-count" id="cnt-hist-ncs" data-unit="Notas de Crédito" aria-live="polite">Exibindo {len(hist_list)} de {len(hist_list)} Notas de Crédito ({tot_distintas} distintas)</span>'
         f'</div>'
         f'<div class="tbl-filtros" id="flt-hist" role="group" aria-label="Filtros do histórico consolidado">'
         f'<span class="flt-lbl">Filtrar:</span>'
         f'<select class="flt" id="flt-hist-om" aria-label="Filtrar por organização militar" onchange="bcmsFiltraHistorico()">'
         f'<option value="">Unidade: todas</option>'
-        f'<option value="BCMS">BCMS</option>'
-        f'<option value="Ba Ap Log Ex">Ba Ap Log Ex</option>'
-        f'<option value="D C Mun">D C Mun</option>'
-        f'<option value="BMSA">BMSA</option>'
-        f'<option value="1º D Sup">1º D Sup</option>'
-        f'<option value="ECT">ECT</option>'
+        f'{opt_oms}'
         f'</select>'
         f'<select class="flt" id="flt-hist-fonte" aria-label="Filtrar por fonte" onchange="bcmsFiltraHistorico()">'
         f'<option value="">Fonte: todas</option>'
@@ -1738,15 +1736,15 @@ def secao_historico_ncs(res, hist, data_str, periodo):
     tot_pages = math.ceil(len(hist_list)/50) if hist_list else 1
     table_hist_html = (
         f'<div class="tbl-scroll" id="scroll-hist-ncs">'
-        f'<table class="det det-compact" id="tbl-historico-ncs">'
+        f'<table class="tbl tbl-hist" id="tbl-hist-ncs">'
         f'<thead>'
         f'<tr>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'fonte\', this)" title="Ordenar por Fonte">Fonte <span class="sort"></span></th>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'nc\', this)" title="Ordenar por Número da NC">NC <span class="sort"></span></th>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'fav\', this)" title="Ordenar por Unidade">Unidade (OMDS) <span class="sort"></span></th>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'ptres\', this)" title="Ordenar por PTRES / Ação">Ação · ND <span class="sort"></span></th>'
-        f'<th>Descrição do objeto da NC</th>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'emit\', this)" title="Ordenar por UG Emitente">UG Emitente <span class="sort"></span></th>'
+        f'<th>Fonte</th>'
+        f'<th>Nota de Crédito</th>'
+        f'<th>Favorecido</th>'
+        f'<th>Ação · ND</th>'
+        f'<th class="obj-col">Justificativa / Objeto</th>'
+        f'<th>Emitente</th>'
         f'<th tabindex="0" role="button" aria-sort="descending" onclick="bcmsSortHistorico(\'dt\', this)" title="Ordenar por Data">Recebido em <span class="sort">▼</span></th>'
         f'<th class="num" tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'prov\', this)" title="Ordenar por Valor Original">Provisão <span class="sort"></span></th>'
         f'<th class="num" tabindex="0" role="button" aria-sort="none" onclick="bcmsSortHistorico(\'cred\', this)" title="Ordenar por Saldo Disponível">Crédito Disp. <span class="sort"></span></th>'
@@ -1779,7 +1777,7 @@ def secao_historico_ncs(res, hist, data_str, periodo):
   <div class="ranking-header-card" style="border-top-color:var(--primary-600);">
     <div class="rh-tag" style="color:var(--primary);">EXERCÍCIO FINANCEIRO CORRENTE · PAINEL ANALÍTICO CONSOLIDADO</div>
     <h2 class="rh-title">📜 Histórico Consolidado de Notas de Crédito (NC)</h2>
-    <p class="rh-desc">Repositório completo e rastreável de todas as Notas de Crédito recebidas no exercício pelas 6 OMDS da Base de Apoio Logístico do Exército. Pesquise por termos da justificativa, combine filtros por unidade, fonte e período, ou clique em qualquer linha para inspecionar o detalhamento cadastral e financeiro completo no modal.</p>
+    <p class="rh-desc">Repositório analítico de todas as Notas de Crédito recebidas no exercício pelo 6º Batalhão de Engenharia de Construção (UASGs 160353 OGU e 167353 FEx). Pesquise por termos da justificativa, combine filtros por fonte, ação e período, ou clique em qualquer linha para inspecionar o detalhamento cadastral e financeiro completo no modal.</p>
   </div>
 
   <section class="sec">
@@ -2055,8 +2053,6 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     catrimani_frag = secao_operacao_catrimani(catrimani_data, data_str, periodo) if catrimani_data else ""
     if catrimani_frag:
         frags.append(catrimani_frag)
-    ranking_frag = secao_comparativo_omds(res, hist, data_str, periodo)
-    frags.append(ranking_frag)
     frags.append(hist_frag)
 
     banner = ""
@@ -2095,8 +2091,8 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     return f"""<!doctype html><html lang="pt-BR" style="--accent:{u0['accent']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Painel de Crédito Disponível das OMDS da Base de Apoio Logístico do Exército — SIAFI / Tesouro Gerencial">
-<title>Crédito Disponível — OMDS Ba Ap Log Ex</title>
+<meta name="description" content="Painel de Execução Orçamentária e Crédito Disponível do 6º Batalhão de Engenharia de Construção (6º BEC) & Operação Catrimani II — SIAFI / Tesouro Gerencial">
+<title>Crédito Disponível — 6º BEC & Operação Catrimani II</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap" rel="stylesheet">
@@ -3641,130 +3637,439 @@ select option:checked, .flt option:checked, .hist-select option:checked {
 }
 
 /* Modal Detalhe da NC */
-.m-header {
+/* ==========================================================================
+   EXECUTIVE MILITARY MODAL DESIGN (High-Fidelity FinTech & Defense Analytics)
+   ========================================================================== */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(3, 7, 18, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+.modal.open { display: flex; }
+.modal-panel {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  max-width: 860px;
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  margin: auto;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  animation: modalPopIn .24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modalPopIn {
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-x {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: 10px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  transition: all .2s ease;
+  z-index: 20;
+}
+.modal-x:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger-border);
+  transform: scale(1.08);
+}
+#modal-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 0;
+}
+.m-accent-bar {
+  height: 5px;
+  width: 100%;
+  background: linear-gradient(90deg, #10B981 0%, #059669 35%, #2563EB 75%, #8B5CF6 100%);
+}
+.m-content-wrap {
+  padding: 24px 28px 28px 28px;
+}
+.m-header-v2 {
+  margin-bottom: 20px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--border);
 }
-.m-tag {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: var(--primary-600);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-  display: block;
-}
-.m-secao { margin-bottom: 18px; }
-.m-secao-h {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  color: var(--ink-muted);
-  margin-bottom: 10px;
+.m-header-meta-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
-.m-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.m-grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.m-card-id, .m-card-class {
+.m-badge-op {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(16, 185, 129, 0.12);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.m-badge-status-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.m-badge-status-lg.status-ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+.m-badge-status-lg.status-warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #FBBF24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.m-badge-status-lg.status-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93C5FD;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+.m-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.m-nc-code-block h3 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+  word-break: break-all;
+}
+.m-sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.m-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 6px;
   background: var(--bg-subtle);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+.m-fin-section {
+  margin-bottom: 22px;
+}
+.m-fin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.m-fin-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  transition: transform .15s ease, border-color .15s ease;
+}
+.m-fin-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+.m-fin-card.hero-saldo {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(5, 150, 105, 0.05) 100%);
+  border: 1.5px solid rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+}
+.m-fin-label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+.m-fin-val {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.m-fin-val.col-prov { color: var(--primary-600); }
+.m-fin-val.col-emp  { color: var(--warning-ink); }
+.m-fin-val-hero {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #34D399;
+  font-variant-numeric: tabular-nums;
+}
+.m-fin-sub {
+  font-size: 0.725rem;
+  color: var(--ink-muted);
+}
+.m-fin-tag-hero {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.725rem;
+  font-weight: 700;
+  color: #34D399;
+}
+.m-pipeline-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.m-pipeline-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+}
+.m-stages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.m-stage-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.m-stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+.m-stage-header b {
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.m-progress-track {
+  height: 7px;
+  background: var(--track);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.m-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+.m-progress-bar.bar-emp { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
+.m-progress-bar.bar-liq { background: linear-gradient(90deg, #3B82F6, #60A5FA); }
+.m-progress-bar.bar-pag { background: linear-gradient(90deg, #10B981, #34D399); }
+.m-stage-sub {
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.m-route-grid {
+  display: grid;
+  grid-template-columns: 1fr 40px 1fr;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+@media (max-width: 680px) {
+  .m-route-grid { grid-template-columns: 1fr; }
+  .m-route-arrow { transform: rotate(90deg); margin: 6px auto; }
+}
+.m-route-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.m-route-badge {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: 2px;
+}
+.m-route-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.m-route-desc {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+.m-route-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-600);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.m-class-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.m-class-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.m-card-id span.m-lbl, .m-card-class span.m-lbl {
+.m-class-label {
   font-size: 0.6875rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: 0.06em;
   color: var(--ink-muted);
 }
-.m-card-id b, .m-card-class b { font-size: 0.875rem; font-weight: 600; color: var(--ink); }
-.m-card-class small { font-size: 0.75rem; color: var(--ink-muted); }
-.m-kpis-fin {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+.m-class-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
 }
-.m-kpi-fin {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.m-class-desc {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  line-height: 1.35;
 }
-.m-kpi-fin.hero-saldo {
-  background: var(--success-bg);
-  border-color: var(--success-border);
-}
-.m-kpi-fin b.col-disp { color: var(--success-strong); font-size: 1.25rem; font-weight: 800; font-family: var(--serif); }
-.m-kpi-fin b.col-prov { color: var(--primary-600); font-size: 1.125rem; font-weight: 700; }
-.m-kpi-fin b.col-emp  { color: var(--warning-ink); font-size: 1.125rem; font-weight: 700; }
-.m-estagios-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.m-estagio { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
-.m-estagio-t { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--ink-muted); margin-bottom: 6px; }
-.m-estagio-t b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.fill-liq { background: var(--stg2); }
-.fill-pag { background: var(--success); }
-.m-nc-justificativa {
+.m-justif-card {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--primary-600);
-  border-radius: 10px;
-  padding: 14px 16px;
-  font-size: 0.875rem;
+  border-left: 4px solid var(--success-main);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+}
+.m-justif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.m-justif-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+.m-justif-body {
+  font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 220px;
+  max-height: 200px;
   overflow-y: auto;
+  font-family: 'Inter', sans-serif;
 }
-.m-footer-actions {
+.m-footer-actions-v2 {
   display: flex;
-  gap: 10px;
-  margin-top: 20px;
-  padding-top: 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
   border-top: 1px solid var(--border);
-  justify-content: flex-end;
+  flex-wrap: wrap;
 }
-.btn-copy-nc, .btn-goto-hist {
-  padding: 8px 16px;
-  border-radius: 8px;
+.m-btn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 10px;
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  transition: all .2s ease;
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
   color: var(--ink);
-  transition: background .15s ease, border-color .15s ease;
 }
-.btn-copy-nc:hover, .btn-goto-hist:hover {
+.m-btn-pill:hover {
   background: var(--bg-subtle);
   border-color: var(--primary-600);
-  color: var(--primary-600);
+  transform: translateY(-1px);
 }
-.btn-goto-hist {
-  background: var(--primary-50);
-  color: var(--primary-600);
-  border-color: rgba(37,99,235,0.3);
+.m-btn-pill.primary {
+  background: var(--primary-600);
+  color: #FFFFFF;
+  border-color: var(--primary-600);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
 }
+.m-btn-pill.primary:hover {
+  background: var(--primary-strong);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+}
+
 """
 
 JS = r"""
@@ -3832,22 +4137,15 @@ function trocaOMDS(btn){
       bcmsInitCatrimani();
     }
   } else if(key==='HISTORICO'){
-    document.documentElement.style.setProperty('--accent','#1C4A73');
-    var em=document.getElementById('emblema');if(em){em.src='assets/logos/BAAPLOG.png';em.alt='Brasão Base de Apoio Logístico';}
-    var t=document.getElementById('uTitulo');if(t)t.textContent='Histórico de Notas de Crédito — Exercício 2026';
-    var n=document.getElementById('uNome');if(n)n.textContent='Base de Apoio Logístico do Exército — Registro Geral de NCs';
-    var uu=document.getElementById('uUasg');if(uu)uu.textContent='Consolidado de todas as Notas de Crédito Emitidas e Recebidas no Exercício';
-    try{document.title='Histórico de Notas de Crédito — Exercício 2026';}catch(e){}
+    document.documentElement.style.setProperty('--accent','#059669');
+    var em=document.getElementById('emblema');if(em){em.src='assets/logos/6BEC.png';em.alt='Brasão 6º BEC';}
+    var t=document.getElementById('uTitulo');if(t)t.textContent='Histórico de Notas de Crédito — 6º BEC';
+    var n=document.getElementById('uNome');if(n)n.textContent='6º Batalhão de Engenharia de Construção — Registro Geral de NCs';
+    var uu=document.getElementById('uUasg');if(uu)uu.textContent='UASGs 160353 (OGU) e 167353 (FEx) · Exercício 2026';
+    try{document.title='Histórico de NCs — 6º BEC';}catch(e){}
     if(!HIST_INITIALIZED){
       bcmsInitHistorico();
     }
-  } else if(key==='RANKING'){
-    document.documentElement.style.setProperty('--accent','#D99B26');
-    var em=document.getElementById('emblema');if(em){em.src='assets/logos/BAAPLOG.png';em.alt='Brasão Base de Apoio Logístico';}
-    var t=document.getElementById('uTitulo');if(t)t.textContent='Crédito Disponível — Ranking & Comparativo OMDS';
-    var n=document.getElementById('uNome');if(n)n.textContent='Base de Apoio Logístico do Exército';
-    var uu=document.getElementById('uUasg');if(uu)uu.textContent='Consolidado das 6 Organizações Militares Diretamente Subordinadas';
-    try{document.title='Crédito Disponível — Ranking & Comparativo OMDS';}catch(e){}
   } else {
     var u=UNIDADES[key];if(!u)return;
     document.documentElement.style.setProperty('--accent',u.accent);
@@ -4110,7 +4408,7 @@ function bcmsExportTable(btn,tid,filename){
     else if(u.indexOf('DIA')>-1||u.indexOf('IDADE')>-1){w=100;}
     xml+=' <Column ss:AutoFitWidth="1" ss:Width="'+w+'"/>\n';
   });
-  xml+=' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="'+(headers.length-1)+'"><Data ss:Type="String">BASE DE APOIO LOGÍSTICO DO EXÉRCITO — RELATÓRIO DE CRÉDITOS DISPONÍVEIS</Data></Cell></Row>\n';
+  xml+=' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="'+(headers.length-1)+'"><Data ss:Type="String">6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO — RELATÓRIO DE CRÉDITOS DISPONÍVEIS</Data></Cell></Row>\n';
   var _flt=(typeof bcmsFiltrosAtivos==='function')?bcmsFiltrosAtivos(tid):'';
   xml+=' <Row ss:Height="18"><Cell ss:MergeAcross="'+(headers.length-1)+'"><Data ss:Type="String">Posição extraída do Tesouro Gerencial / SIAFI · '+new Date().toLocaleDateString('pt-BR')+' · '+rows.length+' registro(s)'+(_flt?' · FILTROS APLICADOS — '+_flt:' · sem filtros (lista completa)')+'</Data></Cell></Row>\n';
   xml+=' <Row ss:Height="10"/>\n';
@@ -4565,6 +4863,73 @@ function bcmsDetalheNC(hid){
       }
     }
   }
+  if(!item && typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas){
+    for(var c = 0; c < CATRDATA.linhas.length; c++){
+      var cl = CATRDATA.linhas[c];
+      if(cl.nc === hid || cl.hid === hid){
+        item = {
+          hid: cl.nc,
+          nc: cl.nc,
+          op: cl.op || 'DESCENTRALIZACAO DE CREDITO',
+          dia: cl.dia || '—',
+          dias: null,
+          status: (cl.cred > 0 ? 'Disponível' : 'Consumido Integral'),
+          status_slug: (cl.cred > 0 ? 'ok' : 'danger'),
+          emit_cod: cl.emit || '160073',
+          emit_nome: cl.emit_nome || 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
+          fav_cod: cl.ug || '160353',
+          fav_nome: cl.ug_nome || '6º BEC · OGU',
+          om_sigla: '6º BEC',
+          ptres: cl.acao || '21EM',
+          acao_desc: 'Ação Governamental ' + (cl.acao || '21EM'),
+          fonte: 'OGU',
+          nd: cl.nd || '—',
+          nd_desc: cl.nd_desc || 'Natureza de Despesa',
+          pi: cl.pi || '—',
+          pi_desc: cl.pi_nome || 'Plano Interno',
+          prov: cl.prov || 0,
+          bloq: 0,
+          emp: cl.emp || 0,
+          liq: 0,
+          pag: 0,
+          cred: cl.cred || 0,
+          obj: cl.obj || ''
+        };
+        break;
+      }
+    }
+  }
+  if(!item && typeof NCDATA !== 'undefined' && NCDATA && NCDATA[hid]){
+    var ndo = NCDATA[hid];
+    item = {
+      hid: ndo.nc,
+      nc: ndo.nc,
+      op: ndo.op || 'DESCENTRALIZACAO DE CREDITO',
+      dia: ndo.dia || '—',
+      dias: null,
+      status: (ndo.val > 0 ? 'Disponível' : 'Consumido'),
+      status_slug: (ndo.val > 0 ? 'ok' : 'danger'),
+      emit_cod: '160073',
+      emit_nome: 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
+      fav_cod: '160353',
+      fav_nome: '6º BEC · OGU',
+      om_sigla: '6º BEC',
+      ptres: ndo.acao || '—',
+      acao_desc: 'Ação ' + (ndo.acao || '—'),
+      fonte: ndo.u || 'OGU',
+      nd: ndo.nd || '—',
+      nd_desc: ndo.ndn || 'Natureza de Despesa',
+      pi: ndo.pi || '—',
+      pi_desc: 'Plano Interno',
+      prov: ndo.val || 0,
+      bloq: 0,
+      emp: 0,
+      liq: 0,
+      pag: 0,
+      cred: ndo.val || 0,
+      obj: ndo.obj || ''
+    };
+  }
   if(!item) return;
 
   var prov = item.prov || 0;
@@ -4578,129 +4943,157 @@ function bcmsDetalheNC(hid){
   var pCred = prov > 0 ? (cred / prov * 100) : 0;
   var pLiq = emp > 0 ? (liq / emp * 100) : 0;
   var pPag = liq > 0 ? (pag / liq * 100) : 0;
-  var statusCls = 'status-' + item.status_slug;
+
+  var isCatr = (item.ptres === '21EM') || (item.obj && item.obj.indexOf('CATRIMANI') !== -1) || (item.acao_desc && item.acao_desc.indexOf('21EM') !== -1);
+  var badgeOp = isCatr ? '<span class="m-badge-op">🛡️ OPERAÇÃO CATRIMANI II · AÇÃO 21EM</span>' : '<span class="m-badge-op" style="color:#60A5FA;background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.3);">🏛️ 6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO</span>';
+  var barGrad = isCatr ? 'linear-gradient(90deg, #10B981 0%, #059669 35%, #F59E0B 75%, #EAB308 100%)' : 'linear-gradient(90deg, #10B981 0%, #059669 35%, #2563EB 75%, #8B5CF6 100%)';
+  var statusBadge = cred > 0 ? '<span class="m-badge-status-lg status-ok">● DISPONÍVEL INTEGRAL</span>' : '<span class="m-badge-status-lg status-warn">● EXECUTADO INTEGRAL</span>';
 
   var fonteExtenso = item.fonte === 'OGU' ? '160 - Orçamento Geral da União (OGU)' : (item.fonte === 'FEx' ? '167 - Fundo do Exército (FEx)' : item.fonte);
 
   var h = '';
-  /* Header do Modal */
-  h += '<div class="m-header">';
-  h += '  <div>';
-  h += '    <span class="m-tag">DETALHAMENTO INTEGRAL · EXERCÍCIO 2026</span>';
-  h += '    <h3 id="modal-title" style="margin:4px 0 6px 0;">Nota de Crédito ' + bcmsEsc(item.nc) + '</h3>';
-  h += '    <p class="m-sub" style="margin:0;">' + bcmsEsc(item.op) + ' · Emitida em <b>' + bcmsEsc(item.dia || '—') + '</b>' + (item.dias !== null ? ' (' + item.dias + ' dias)' : '') + '</p>';
-  h += '  </div>';
-  h += '  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">';
-  h += '    <span class="pill-status ' + statusCls + '" style="font-size:0.875rem;padding:6px 14px;">' + bcmsEsc(item.status) + '</span>';
-  h += '    <button type="button" class="btn-copy-nc" onclick="bcmsCopiarNC(\'' + bcmsEsc(item.nc) + '\')" title="Copiar número da NC">📋 Copiar NC</button>';
-  h += '  </div>';
-  h += '</div>';
+  h += '<div class="m-accent-bar" style="background:' + barGrad + ';"></div>';
+  h += '<div class="m-content-wrap">';
 
-  /* Bloco 1: Identificação */
-  h += '<div class="m-secao">';
-  h += '  <div class="m-secao-h"><span>🏢</span> 1. Identificação da Nota e Unidades Gestoras</div>';
-  h += '  <div class="m-grid-2">';
-  h += '    <div class="m-card-id">';
-  h += '      <span class="m-lbl">UG Emitente (Origem)</span>';
-  h += '      <b><span class="ug-pill emit">' + bcmsEsc(item.emit_cod) + '</span> ' + bcmsEsc(item.emit_nome) + '</b>';
+  /* Cabeçalho Executivo */
+  h += '  <div class="m-header-v2">';
+  h += '    <div class="m-header-meta-row">';
+  h += '      ' + badgeOp;
+  h += '      ' + statusBadge;
   h += '    </div>';
-  h += '    <div class="m-card-id">';
-  h += '      <span class="m-lbl">UG Favorecida (Destino)</span>';
-  h += '      <b><span class="ug-pill fav">' + bcmsEsc(item.fav_cod) + '</span> ' + bcmsEsc(item.fav_nome) + ' (' + bcmsEsc(item.om_sigla) + ')</b>';
+  h += '    <div class="m-title-row">';
+  h += '      <div class="m-nc-code-block">';
+  h += '        <h3 id="modal-title">Nota de Crédito ' + bcmsEsc(item.nc) + '</h3>';
+  h += '      </div>';
+  h += '      <button type="button" class="m-btn-pill" onclick="bcmsCopiarNC(\'' + bcmsEsc(item.nc) + '\', this)" title="Copiar número da NC">';
+  h += '        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copiar NC';
+  h += '      </button>';
   h += '    </div>';
-  h += '  </div>';
-  h += '</div>';
-
-  /* Bloco 2: Classificação Orçamentária */
-  h += '<div class="m-secao">';
-  h += '  <div class="m-secao-h"><span>🎯</span> 2. Classificação Orçamentária</div>';
-  h += '  <div class="m-grid-4">';
-  h += '    <div class="m-card-class">';
-  h += '      <span class="m-lbl">PTRES / Ação</span>';
-  h += '      <b class="mono">' + bcmsEsc(item.ptres || '—') + '</b>';
-  h += '      <small>' + bcmsEsc(item.acao_desc || 'Ação orçamentária') + '</small>';
-  h += '    </div>';
-  h += '    <div class="m-card-class">';
-  h += '      <span class="m-lbl">Fonte de Recursos</span>';
-  h += '      <b><span class="pill-fonte">' + bcmsEsc(item.fonte) + '</span></b>';
-  h += '      <small>' + bcmsEsc(fonteExtenso) + '</small>';
-  h += '    </div>';
-  h += '    <div class="m-card-class">';
-  h += '      <span class="m-lbl">Natureza de Despesa (ND)</span>';
-  h += '      <b class="mono">' + bcmsEsc(item.nd || '—') + '</b>';
-  h += '      <small>' + bcmsEsc(item.nd_desc || 'Elemento de despesa') + '</small>';
-  h += '    </div>';
-  h += '    <div class="m-card-class">';
-  h += '      <span class="m-lbl">Plano Interno (PI)</span>';
-  h += '      <b class="mono">' + bcmsEsc(item.pi || '—') + '</b>';
-  h += '      <small>' + bcmsEsc(item.pi_desc || 'Plano interno') + '</small>';
-  h += '    </div>';
-  h += '  </div>';
-  h += '</div>';
-
-  /* Bloco 3: Balanço e Posição Financeira */
-  h += '<div class="m-secao">';
-  h += '  <div class="m-secao-h"><span>💰</span> 3. Balanço e Valores em Tempo Real</div>';
-  h += '  <div class="m-kpis-fin">';
-  h += '    <div class="m-kpi-fin">';
-  h += '      <span class="m-lbl">Valor Original (Recebido)</span>';
-  h += '      <b class="col-prov">' + bcmsBRL(prov) + '</b>';
-  h += '      <small style="color:var(--ink-muted);font-size:0.75rem;">Total descentralizado</small>';
-  h += '    </div>';
-  h += '    <div class="m-kpi-fin">';
-  h += '      <span class="m-lbl">Bloqueado / Pré-empenho</span>';
-  h += '      <b>' + bcmsBRL(bloq) + '</b>';
-  h += '      <small style="color:var(--ink-muted);font-size:0.75rem;">Reserva de crédito</small>';
-  h += '    </div>';
-  h += '    <div class="m-kpi-fin">';
-  h += '      <span class="m-lbl">Executado (Empenhado)</span>';
-  h += '      <b class="col-emp">' + bcmsBRL(emp) + '</b>';
-  h += '      <small style="color:var(--ink-muted);font-size:0.75rem;">' + pEmp.toFixed(1) + '% consumido</small>';
-  h += '    </div>';
-  h += '    <div class="m-kpi-fin hero-saldo">';
-  h += '      <span class="m-lbl">Saldo Disponível em Tela</span>';
-  h += '      <b class="col-disp">' + bcmsBRL(cred) + '</b>';
-  h += '      <small style="color:var(--success-strong);font-size:0.75rem;font-weight:700;">' + pCred.toFixed(1) + '% remanescente</small>';
+  h += '    <div class="m-sub-meta">';
+  h += '      <span class="m-meta-chip">⚙️ ' + bcmsEsc(item.op || 'DESCENTRALIZACAO DE CREDITO') + '</span>';
+  h += '      <span class="m-meta-chip">📅 Emissão: <b>' + bcmsEsc(item.dia || '—') + '</b>' + (item.dias !== null && item.dias !== undefined ? ' (' + item.dias + ' dias)' : '') + '</span>';
+  h += '      <span class="m-meta-chip">🏛️ Exercício Financeiro 2026</span>';
   h += '    </div>';
   h += '  </div>';
 
-  /* Estágios da despesa na célula */
-  h += '  <div class="m-estagios-grid">';
-  h += '    <div class="m-estagio">';
-  h += '      <div class="m-estagio-t"><span>Liquidação sobre Empenho</span><b>' + bcmsBRL(liq) + ' (' + pLiq.toFixed(1) + '%)</b></div>';
-  h += '      <div class="m-barra-track"><div class="m-barra-fill fill-liq" style="width:' + Math.min(100, pLiq).toFixed(1) + '%"></div></div>';
+  /* Seção 1: Balanço Financeiro */
+  h += '  <div class="m-fin-section">';
+  h += '    <div class="m-fin-grid">';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Valor Original (Recebido)</span>';
+  h += '        <span class="m-fin-val col-prov">' + bcmsBRL(prov) + '</span>';
+  h += '        <span class="m-fin-sub">Dotação integral descentralizada</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Bloqueado / Pré-Empenho</span>';
+  h += '        <span class="m-fin-val">' + bcmsBRL(bloq) + '</span>';
+  h += '        <span class="m-fin-sub">Reserva de crédito orçamentário</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Executado (Empenhado)</span>';
+  h += '        <span class="m-fin-val col-emp">' + bcmsBRL(emp) + '</span>';
+  h += '        <span class="m-fin-sub">' + pEmp.toFixed(1) + '% consumido da dotação</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card hero-saldo">';
+  h += '        <span class="m-fin-label" style="color:#10B981;">Saldo Disponível em Tela</span>';
+  h += '        <span class="m-fin-val-hero">' + bcmsBRL(cred) + '</span>';
+  h += '        <span class="m-fin-tag-hero">✓ ' + pCred.toFixed(1) + '% remanescente líquido</span>';
+  h += '      </div>';
   h += '    </div>';
-  h += '    <div class="m-estagio">';
-  h += '      <div class="m-estagio-t"><span>Pagamento sobre Liquidação</span><b>' + bcmsBRL(pag) + ' (' + pPag.toFixed(1) + '%)</b></div>';
-  h += '      <div class="m-barra-track"><div class="m-barra-fill fill-pag" style="width:' + Math.min(100, pPag).toFixed(1) + '%"></div></div>';
+
+  /* Pipeline 3 Estágios */
+  h += '    <div class="m-pipeline-card">';
+  h += '      <div class="m-pipeline-header">Pipeline de Execução Orçamentária e Financeira (SIAFI)</div>';
+  h += '      <div class="m-stages-grid">';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-header"><span>1. Empenho / Recebido</span><b>' + bcmsBRL(emp) + ' (' + pEmp.toFixed(1) + '%)</b></div>';
+  h += '          <div class="m-progress-track"><div class="m-progress-bar bar-emp" style="width:' + Math.min(100, pEmp).toFixed(1) + '%"></div></div>';
+  h += '          <span class="m-stage-sub">Comprometimento formal da dotação</span>';
+  h += '        </div>';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-header"><span>2. Liquidação / Empenho</span><b>' + bcmsBRL(liq) + ' (' + pLiq.toFixed(1) + '%)</b></div>';
+  h += '          <div class="m-progress-track"><div class="m-progress-bar bar-liq" style="width:' + Math.min(100, pLiq).toFixed(1) + '%"></div></div>';
+  h += '          <span class="m-stage-sub">Atesto e liquidação de serviços ou bens</span>';
+  h += '        </div>';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-header"><span>3. Pagamento / Liquidação</span><b>' + bcmsBRL(pag) + ' (' + pPag.toFixed(1) + '%)</b></div>';
+  h += '          <div class="m-progress-track"><div class="m-progress-bar bar-pag" style="width:' + Math.min(100, pPag).toFixed(1) + '%"></div></div>';
+  h += '          <span class="m-stage-sub">Ordem bancária efetivada no Tesouro</span>';
+  h += '        </div>';
+  h += '      </div>';
   h += '    </div>';
   h += '  </div>';
-  h += '</div>';
 
-  /* Bloco 4: Observação / Finalidade */
-  h += '<div class="m-secao">';
-  h += '  <div class="m-secao-h"><span>📝</span> 4. Observação / Finalidade Cadastrada na Nota</div>';
-  h += '  <div class="m-nc-justificativa">' + bcmsEsc(item.obj || '(Sem texto de observação cadastrado no SIAFI)') + '</div>';
-  h += '</div>';
+  /* Seção 2: Tramitação de UGs */
+  h += '  <div class="m-route-grid">';
+  h += '    <div class="m-route-card">';
+  h += '      <span class="m-route-badge">UG Emitente (Origem)</span>';
+  h += '      <div class="m-route-title"><span class="ug-pill emit">' + bcmsEsc(item.emit_cod || '160073') + '</span> ' + bcmsEsc(item.emit_nome || 'DGO') + '</div>';
+  h += '      <span class="m-route-desc">Órgão Central Setorial / Diretoria de Gestão Orçamentária</span>';
+  h += '    </div>';
+  h += '    <div class="m-route-arrow">➔</div>';
+  h += '    <div class="m-route-card">';
+  h += '      <span class="m-route-badge">UG Favorecida (Executora)</span>';
+  h += '      <div class="m-route-title"><span class="ug-pill fav">' + bcmsEsc(item.fav_cod || '160353') + '</span> ' + bcmsEsc(item.fav_nome || '6º BEC') + (item.om_sigla ? ' (' + bcmsEsc(item.om_sigla) + ')' : '') + '</div>';
+  h += '      <span class="m-route-desc">Unidade Gestora Executora Operacional</span>';
+  h += '    </div>';
+  h += '  </div>';
+
+  /* Seção 3: Classificação Orçamentária */
+  h += '  <div class="m-class-grid">';
+  h += '    <div class="m-class-card">';
+  h += '      <span class="m-class-label">PTRES / Ação Orçamentária</span>';
+  h += '      <span class="m-class-code">' + bcmsEsc(item.ptres || '—') + '</span>';
+  h += '      <span class="m-class-desc">' + bcmsEsc(item.acao_desc || 'Ação Governamental') + '</span>';
+  h += '    </div>';
+  h += '    <div class="m-class-card">';
+  h += '      <span class="m-class-label">Fonte de Recursos</span>';
+  h += '      <span class="m-class-code"><span class="pill-fonte">' + bcmsEsc(item.fonte || 'OGU') + '</span></span>';
+  h += '      <span class="m-class-desc">' + bcmsEsc(fonteExtenso) + '</span>';
+  h += '    </div>';
+  h += '    <div class="m-class-card">';
+  h += '      <span class="m-class-label">Natureza de Despesa (ND)</span>';
+  h += '      <span class="m-class-code">' + bcmsEsc(item.nd || '—') + '</span>';
+  h += '      <span class="m-class-desc">' + bcmsEsc(item.nd_desc || 'Elemento de Despesa') + '</span>';
+  h += '    </div>';
+  h += '    <div class="m-class-card">';
+  h += '      <span class="m-class-label">Plano Interno (PI)</span>';
+  h += '      <span class="m-class-code">' + bcmsEsc(item.pi || '—') + '</span>';
+  h += '      <span class="m-class-desc">' + bcmsEsc(item.pi_desc || 'Plano Interno') + '</span>';
+  h += '    </div>';
+  h += '  </div>';
+
+  /* Seção 4: Finalidade / Observação */
+  var rawObj = item.obj || '(Sem texto de observação cadastrado no SIAFI)';
+  var escObjAttr = bcmsEsc(rawObj).replace(/"/g, '&quot;');
+  h += '  <div class="m-justif-card">';
+  h += '    <div class="m-justif-header">';
+  h += '      <span class="m-justif-title">Finalidade / Objeto Cadastrado no SIAFI</span>';
+  h += '      <button type="button" class="m-btn-pill" style="padding:4px 10px;font-size:0.75rem;" onclick="bcmsCopiarTexto(this)" data-copy="' + escObjAttr + '">📋 Copiar Texto</button>';
+  h += '    </div>';
+  h += '    <div class="m-justif-body">' + bcmsEsc(rawObj) + '</div>';
+  h += '  </div>';
 
   /* Subtabela de desdobramentos se houver mais de 1 lançamento */
   if(item.itens && item.itens.length > 1){
-    h += '<div class="m-secao">';
-    h += '  <div class="m-secao-h"><span>📑</span> Desdobramentos da Nota (' + item.itens.length + ' lançamentos)</div>';
-    h += '  <div class="tbl-scroll"><table class="det det-itens"><thead><tr><th>Ação</th><th>PI</th><th>ND</th><th class="num">Valor</th></tr></thead><tbody>';
+    h += '  <div class="m-justif-card" style="border-left-color:var(--primary-600);">';
+    h += '    <div class="m-justif-header"><span class="m-justif-title">Desdobramentos da Nota (' + item.itens.length + ' lançamentos)</span></div>';
+    h += '    <div class="tbl-scroll"><table class="det det-itens"><thead><tr><th>Ação</th><th>PI</th><th>ND</th><th class="num">Valor</th></tr></thead><tbody>';
     for(var j = 0; j < item.itens.length; j++){
       var sub = item.itens[j];
       h += '<tr><td class="mono2">' + bcmsEsc(sub.acao || '—') + '</td><td class="mono2">' + bcmsEsc(sub.pi || '—') + '</td><td class="mono2">' + bcmsEsc(sub.nd || '—') + '</td><td class="num">' + bcmsBRL(sub.val || 0) + '</td></tr>';
     }
     h += '</tbody></table></div>';
-    h += '</div>';
+    h += '  </div>';
   }
 
-  /* Rodapé de Ações */
-  h += '<div class="m-footer-actions">';
-  h += '  <button type="button" class="btn-goto-hist" onclick="bcmsVerNoHistorico(\'' + bcmsEsc(item.nc) + '\')">🔍 Localizar no Histórico Geral</button>';
-  h += '  <button type="button" class="btn-copy-nc" onclick="bcmsCopiarNC(\'' + bcmsEsc(item.nc) + '\')">📋 Copiar Nº da NC</button>';
-  h += '  <button type="button" class="btn-pag" onclick="bcmsCelClose()">Fechar ✕</button>';
+  /* Rodapé de Ações Executivo */
+  h += '  <div class="m-footer-actions-v2">';
+  h += '    <button type="button" class="m-btn-pill" onclick="bcmsVerNoHistorico(\'' + bcmsEsc(item.nc) + '\')">🔍 Localizar no Histórico Geral</button>';
+  h += '    <button type="button" class="m-btn-pill" onclick="bcmsCopiarNC(\'' + bcmsEsc(item.nc) + '\', this)">📋 Copiar Nº da NC</button>';
+  h += '    <button type="button" class="m-btn-pill primary" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
+  h += '  </div>';
+
   h += '</div>';
 
   document.getElementById('modal-body').innerHTML = h;
@@ -4711,10 +5104,15 @@ function bcmsDetalheNC(hid){
   if(x) x.focus();
 }
 
-function bcmsCopiarNC(ncNumero){
+function bcmsCopiarNC(ncNumero, btn){
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(ncNumero).then(function(){
       bcmsToast('📋 Nota de Crédito ' + ncNumero + ' copiada com sucesso!');
+      if(btn){
+        var old = btn.innerHTML;
+        btn.innerHTML = '✓ Copiado!';
+        setTimeout(function(){ btn.innerHTML = old; }, 1800);
+      }
     }).catch(function(){
       bcmsToast('NC: ' + ncNumero);
     });
@@ -4723,7 +5121,43 @@ function bcmsCopiarNC(ncNumero){
     ta.value = ncNumero;
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); bcmsToast('📋 Nota de Crédito ' + ncNumero + ' copiada!'); } catch(e){}
+    try { 
+      document.execCommand('copy'); 
+      bcmsToast('📋 Nota de Crédito ' + ncNumero + ' copiada!');
+      if(btn){
+        var old = btn.innerHTML;
+        btn.innerHTML = '✓ Copiado!';
+        setTimeout(function(){ btn.innerHTML = old; }, 1800);
+      }
+    } catch(e){}
+    document.body.removeChild(ta);
+  }
+}
+
+function bcmsCopiarTexto(btn){
+  var txt = btn.getAttribute('data-copy') || '';
+  if(!txt) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+      bcmsToast('📋 Finalidade copiada para a área de transferência!');
+      var old = btn.innerHTML;
+      btn.innerHTML = '✓ Copiado!';
+      setTimeout(function(){ btn.innerHTML = old; }, 1800);
+    }).catch(function(){
+      bcmsToast('Texto copiado');
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    try { 
+      document.execCommand('copy'); 
+      bcmsToast('📋 Finalidade copiada!');
+      var old = btn.innerHTML;
+      btn.innerHTML = '✓ Copiado!';
+      setTimeout(function(){ btn.innerHTML = old; }, 1800);
+    } catch(e){}
     document.body.removeChild(ta);
   }
 }
@@ -4778,7 +5212,7 @@ function bcmsExportHistoricoExcel(){
     ' <Column ss:AutoFitWidth="1" ss:Width="120"/>\n' +
     ' <Column ss:AutoFitWidth="1" ss:Width="380"/>\n';
 
-  xml += ' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">BASE DE APOIO LOGÍSTICO DO EXÉRCITO — HISTÓRICO GERAL DE NOTAS DE CRÉDITO</Data></Cell></Row>\n';
+  xml += ' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO — HISTÓRICO DE NOTAS DE CRÉDITO</Data></Cell></Row>\n';
   xml += ' <Row ss:Height="18"><Cell ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">Exercício Financeiro Corrente · ' + list.length + ' registro(s) exportado(s) · Posição SIAFI / Tesouro Gerencial · ' + new Date().toLocaleDateString('pt-BR') + '</Data></Cell></Row>\n';
   xml += ' <Row ss:Height="10"/>\n';
   xml += ' <Row ss:Height="24">\n';
@@ -5133,7 +5567,7 @@ function bcmsExportUHistExcel(sfx, sigla){
     ' <Column ss:AutoFitWidth="1" ss:Width="120"/>\n' +
     ' <Column ss:AutoFitWidth="1" ss:Width="380"/>\n';
 
-  xml += ' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">BASE DE APOIO LOGÍSTICO DO EXÉRCITO — HISTÓRICO DE NOTAS DE CRÉDITO (' + bcmsEscXml(omNome) + ')</Data></Cell></Row>\n';
+  xml += ' <Row ss:Height="26"><Cell ss:StyleID="Title" ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO — NOTAS DE CRÉDITO (' + bcmsEscXml(omNome) + ')</Data></Cell></Row>\n';
   xml += ' <Row ss:Height="18"><Cell ss:MergeAcross="' + (headers.length - 1) + '"><Data ss:Type="String">Exercício Financeiro Corrente · ' + list.length + ' registro(s) exportado(s) · Posição SIAFI / Tesouro Gerencial · ' + new Date().toLocaleDateString('pt-BR') + '</Data></Cell></Row>\n';
   xml += ' <Row ss:Height="10"/>\n';
   xml += ' <Row ss:Height="24">\n';
@@ -5275,56 +5709,7 @@ function bcmsPaginaCatrimani(delta){
 
 function bcmsOpenNCModalManual(ncNum){
   if(!ncNum) return;
-  var item = null;
-  if(CATRDATA && CATRDATA.linhas){
-    for(var i=0; i<CATRDATA.linhas.length; i++){
-      if(CATRDATA.linhas[i].nc === ncNum){
-        item = CATRDATA.linhas[i]; break;
-      }
-    }
-  }
-  if(!item && typeof NCDATA !== 'undefined'){
-    item = NCDATA[ncNum];
-  }
-  if(!item) return;
-
-  var h = '';
-  h += '<div class="m-head">';
-  h += '  <div class="eyebrow" style="color:#15803D;">FICHA CADASTRAL · NOTA DE CRÉDITO</div>';
-  h += '  <h3 id="modal-title" style="margin:4px 0 8px 0;">Nota de Crédito ' + (item.nc || '') + '</h3>';
-  h += '  <p style="font-size:0.875rem;color:var(--ink-muted);margin:0;">UG Executora: <b>' + (item.ug || '') + ' — ' + (item.ug_nome || '') + '</b></p>';
-  h += '</div>';
-
-  h += '<div class="kpis" style="margin:16px 0;">';
-  h += '  <div class="kpi" style="border-top-color:var(--gold);"><span class="kpi-l">Provisão Recebida</span><span class="kpi-v">' + bcmsFmtBRL(item.prov) + '</span></div>';
-  h += '  <div class="kpi" style="border-top-color:var(--accent);"><span class="kpi-l">Despesa Empenhada</span><span class="kpi-v">' + bcmsFmtBRL(item.emp) + '</span></div>';
-  h += '  <div class="kpi" style="border-top-color:var(--ok);"><span class="kpi-l">Crédito Disponível</span><span class="kpi-v">' + bcmsFmtBRL(item.cred) + '</span></div>';
-  h += '</div>';
-
-  h += '<div class="m-card" style="padding:16px;background:var(--bg-card);border-radius:12px;margin-bottom:16px;border:1px solid var(--border);">';
-  h += '  <div style="font-weight:700;margin-bottom:8px;font-size:0.875rem;color:var(--ink-heading);">📋 Informações Orçamentárias</div>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Ação Governamental:</b> ' + (item.acao || '') + '</p>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Plano Interno (PI):</b> ' + (item.pi || '') + ' — ' + (item.pi_nome || '') + '</p>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Natureza de Despesa:</b> ' + (item.nd || '') + ' — ' + (item.nd_desc || '') + '</p>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Data de Emissão:</b> ' + (item.dia || '') + '</p>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Emitente:</b> ' + (item.emit || '') + ' — ' + (item.emit_nome || '') + '</p>';
-  h += '  <p style="font-size:0.8125rem;margin:4px 0;"><b>Tipo de Operação:</b> ' + (item.op || '') + '</p>';
-  h += '</div>';
-
-  if(item.obj){
-    h += '<div class="m-card" style="padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--border);">';
-    h += '  <div style="font-weight:700;margin-bottom:8px;font-size:0.875rem;color:var(--ink-heading);">📝 Finalidade / Objeto da Despesa</div>';
-    h += '  <p style="font-size:0.8125rem;line-height:1.5;color:var(--ink);margin:0;">' + item.obj + '</p>';
-    h += '</div>';
-  }
-
-  var body = document.getElementById('modal-body');
-  if(body) body.innerHTML = h;
-  var modal = document.getElementById('modal');
-  if(modal){
-    modal.classList.add('open');
-    modal.setAttribute('aria-hidden', 'false');
-  }
+  bcmsDetalheNC(ncNum);
 }
 
 function bcmsExportCatrimaniExcel(){
