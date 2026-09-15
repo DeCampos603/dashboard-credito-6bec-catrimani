@@ -299,6 +299,13 @@ def etl(path):
         # 2. Operação Catrimani (Ação 21EM ou texto Catrimani)
         row_full = f"{acao} {pi} {pi_nome} {obj}".upper()
         if acao == "21EM" or "CATRIMANI" in row_full:
+            has_fin = any(abs(v) > 0.005 for v in [prov, conc, cred, emp, liq, pag])
+            is_nc = bool(nc and nc not in ("-9", "NAO SE APLICA", "NÃO SE APLICA"))
+
+            # Descarta linhas puramente 'fantasmas' do relatório do Tesouro (sem NC e com tudo zerado)
+            if not has_fin and not is_nc:
+                continue
+
             catrimani_totais["prov"] += prov
             catrimani_totais["conc"] += conc
             catrimani_totais["cred"] += cred
@@ -311,7 +318,8 @@ def etl(path):
                 nom = nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}")
                 catrimani_por_ug[ug] = {
                     "cod": ug, "nome": nom, "prov": 0.0, "conc": 0.0,
-                    "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0
+                    "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0,
+                    "ncs": [], "nds": {}
                 }
             u_catr = catrimani_por_ug[ug]
             u_catr["prov"] += prov; u_catr["conc"] += conc; u_catr["cred"] += cred
@@ -324,12 +332,21 @@ def etl(path):
                 nd_c = catrimani_por_nd[nd]
                 nd_c["prov"] += prov; nd_c["cred"] += cred; nd_c["emp"] += emp; nd_c["liq"] += liq
 
-            catrimani_linhas.append({
-                "nc": nc, "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or ug),
-                "emit": emit, "emit_nome": emit_nome, "acao": acao, "pi": pi, "pi_nome": pi_nome,
-                "nd": nd, "nd_desc": nd_nome, "op": op, "obj": obj,
-                "prov": prov, "conc": conc, "cred": cred, "emp": emp, "liq": liq, "pag": pag
-            })
+                if nd not in u_catr["nds"]:
+                    u_catr["nds"][nd] = {"nd": nd, "nome": nd_nome or nd, "prov": 0.0, "emp": 0.0, "cred": 0.0, "liq": 0.0, "pag": 0.0}
+                u_nd = u_catr["nds"][nd]
+                u_nd["prov"] += prov; u_nd["emp"] += emp; u_nd["cred"] += cred; u_nd["liq"] += liq; u_nd["pag"] += pag
+
+            # Apenas linhas com Nota de Crédito real compõem o Extrato de NCs (evita poluir com empenhos negativos sem NC)
+            if is_nc:
+                nc_reg = {
+                    "nc": nc, "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or ug),
+                    "emit": emit, "emit_nome": emit_nome, "acao": acao, "pi": pi, "pi_nome": pi_nome,
+                    "nd": nd, "nd_desc": nd_nome, "op": op, "obj": obj,
+                    "prov": prov, "conc": conc, "cred": cred, "emp": emp, "liq": liq, "pag": pag
+                }
+                catrimani_linhas.append(nc_reg)
+                u_catr["ncs"].append(nc_reg)
 
     total_linhas = sum(d["n"] for d in res.values())
     if total_linhas == 0:
@@ -362,16 +379,22 @@ def etl(path):
         u_c["dot"] = dot_u
         u_c["pct_emp"] = (u_c["emp"] / dot_u * 100.0) if dot_u > 0 else 0.0
         u_c["pct_liq"] = (u_c["liq"] / dot_u * 100.0) if dot_u > 0 else 0.0
+        u_c["n_ncs"] = len(u_c["ncs"])
+        u_c["nds_list"] = sorted(list(u_c["nds"].values()), key=lambda x: x["prov"], reverse=True)
     ugs_catr_list.sort(key=lambda x: x["prov"], reverse=True)
 
     nds_catr_list = list(catrimani_por_nd.values())
     nds_catr_list.sort(key=lambda x: x["emp"], reverse=True)
+
+    catrimani_ncs_distintas = len(set(x["nc"] for x in catrimani_linhas if x.get("nc")))
 
     catrimani_data = {
         "totais": catrimani_totais,
         "por_ug": ugs_catr_list,
         "por_nd": nds_catr_list,
         "linhas": catrimani_linhas,
+        "ncs_distintas": catrimani_ncs_distintas,
+        "total_linhas_brutas": len(catrimani_linhas)
     }
 
     return res, periodo, alertas, catrimani_data
@@ -914,21 +937,21 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         nc_full = str(c["nc"] or "")
         m_nc = re.search(r"NC(\d+)$", nc_full)
         if m_nc:
-            nc_lbl = f'<span class="nc-num">NC {esc(m_nc.group(1))}</span> <span class="nc-ug">· {esc(nc_full[:6])}</span>'
+            nc_lbl = f'<span class="nc-lbl-wrap"><span class="nc-num">NC {esc(m_nc.group(1))}</span> <span class="nc-ug">({esc(nc_full[:6])})</span></span>'
         else:
             nc_lbl = f'<span class="nc-num">{esc(nc_full)}</span>'
         tid = esc(c.get("tid", ""))
         faixa = "none" if dias is None else ("r" if dias > 60 else ("a" if dias > 30 else "v"))
         return (f'<tr class="cel-row" tabindex="0" role="button" data-tela="{tid}" data-cel="{cid}" '
                 f'data-fonte="{esc(c.get("fonte",""))}" data-acao="{esc(c["acao"])}" data-nd="{esc(c["nd"])}" '
-                f'data-faixa="{faixa}" data-val="{c["cred"]:.2f}" title="Clique para ver o que está em tela desta NC" '
+                f'data-faixa="{faixa}" data-val="{c["cred"]:.2f}" title="Clique para ver o detalhamento completo em tela desta NC" '
                 f'onclick="bcmsTela(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsTela(this)}}">'
                 f'<td><span class="pill-fonte">{esc(c["fonte"])}</span></td>'
-                f'<td class="mono2" title="{esc(nc_full)}">{nc_lbl}</td>'
-                f'<td class="mono2">{esc(acao_nd)}</td>'
+                f'<td class="mono2" style="white-space:nowrap;" title="{esc(nc_full)}">{nc_lbl}</td>'
+                f'<td class="mono2" style="white-space:nowrap;">{esc(acao_nd)}</td>'
                 f'<td class="obj" title="{desc_completa}" data-full-desc="{desc_completa}">{desc_resumo}</td>'
-                f'<td class="mono2">{esc(refd)}</td>'
-                f'<td class="num anchor" data-sort="{c["cred"]:.2f}">{esc(brl(c["cred"]))}</td>'
+                f'<td class="mono2" style="white-space:nowrap;">{esc(refd)}</td>'
+                f'<td class="num anchor" data-sort="{c["cred"]:.2f}" title="Crédito Disponível: {esc(brl(c["cred"]))} (Clique para detalhar)">{esc(brl(c["cred"]))}</td>'
                 f'<td class="num" data-sort="{dsort}"><span class="{dcls}">{dtxt}</span><i class="chev" aria-hidden="true">›</i></td></tr>')
 
     et_ths = (
@@ -1854,22 +1877,26 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     )
 
     # Tabela comparativa das 10 UGs
+    distinct_catr_ncs = catr.get("ncs_distintas", len(set(x["nc"] for x in linhas if x.get("nc"))))
+
     ug_rows = []
     for u in por_ug:
-        sem_cor = "var(--ok)" if u["pct_emp"] >= 80.0 else ("var(--gold)" if u["pct_emp"] >= 60.0 else "var(--bad)")
+        sem_cor = "var(--ok, #10B981)" if u["pct_emp"] >= 80.0 else ("var(--gold, #F59E0B)" if u["pct_emp"] >= 60.0 else "var(--bad, #EF4444)")
         ug_rows.append(
-            f'<tr>'
+            f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsDetalheUG(\'{esc(u["cod"])}\')" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsDetalheUG(\'{esc(u["cod"])}\');}}" '
+            f'title="Clique para ver o detalhamento completo de dotações, empenhos e NCs de {esc(u["nome"])}">'
             f'<td class="col-ug"><b>{esc(u["cod"])}</b></td>'
             f'<td class="col-nome"><b>{esc(u["nome"])}</b></td>'
             f'<td class="num col-moeda">{esc(brl(u["prov"]))}</td>'
             f'<td class="num col-moeda" style="font-weight:700;">{esc(brl(u["emp"]))}</td>'
-            f'<td class="num col-moeda anchor" style="font-weight:700;">{esc(brl(u["cred"]))}</td>'
+            f'<td class="num col-moeda anchor" style="font-weight:700;" title="Crédito Disponível Líquido: {esc(brl(u["cred"]))} (Clique para detalhar)">{esc(brl(u["cred"]))}</td>'
             f'<td class="num col-moeda">{esc(brl(u["liq"]))}</td>'
             f'<td class="num col-moeda">{esc(brl(u["pag"]))}</td>'
             f'<td class="num col-pct">'
             f'  <div class="bar-pct-wrap">'
             f'    <div class="bar-pct-track">'
-            f'      <div class="bar-pct-fill" style="width:{min(100.0, u["pct_emp"]):.1f}%;background:{sem_cor};"></div>'
+            f'      <div class="bar-pct-fill" style="width:{min(100.0, max(2.0, u["pct_emp"])):.1f}%;background:{sem_cor};"></div>'
             f'    </div>'
             f'    <span class="bar-pct-val" style="color:{sem_cor};">{u["pct_emp"]:.1f}%</span>'
             f'  </div>'
@@ -1905,11 +1932,13 @@ def secao_operacao_catrimani(catr, data_str, periodo):
 
     initial_catr_rows = []
     for item in linhas[:25]:
-        st_cor = "var(--ok)" if item["cred"] > 0.01 else "var(--ink-muted)"
+        st_cor = "var(--ok, #10B981)" if item["cred"] > 0.01 else "var(--ink-muted)"
         st_txt = "Com Saldo" if item["cred"] > 0.01 else "Empenhada"
         nc_cod = esc(item["nc"])
         initial_catr_rows.append(
-            f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'{nc_cod}\')">'
+            f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'{nc_cod}\')" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsOpenNCModalManual(\'{nc_cod}\');}}" '
+            f'title="Clique para abrir a ficha cadastral completa desta NC">'
             f'<td>{esc(item["dia"])}</td>'
             f'<td><b class="nc-mono">{esc(item["nc"])}</b></td>'
             f'<td><b>{esc(item["ug"])}</b> <span class="tbl-om-sub">{esc(item["ug_nome"])}</span></td>'
@@ -1966,13 +1995,13 @@ def secao_operacao_catrimani(catr, data_str, periodo):
 
   <section class="sec">
     <div class="eyebrow">Acompanhamento Orçamentário por Unidade Gestora Executora</div>
-    <p class="sec-nota">Relação consolidada das <b>10 Organizações Militares</b> executoras da Operação Catrimani II. Visualize o volume recebido, a taxa de empenho executada e o saldo livre para aplicação.</p>
+    <p class="sec-nota">Relação consolidada das <b>10 Organizações Militares</b> executoras da Operação Catrimani II. <b>Clique em qualquer linha ou crédito</b> para abrir a ficha completa com balanço, despesas por ND e extrato de NCs daquela UG.</p>
     {tabela_ugs_html}
   </section>
 
   <section class="sec">
     <div class="eyebrow">Extrato Completo de Notas de Crédito da Operação Catrimani</div>
-    <p class="sec-nota">Relação de <b>todas as {len(linhas)} Notas de Crédito recebidas</b> pelas UGs no âmbito da Operação Catrimani II. Utilize os filtros interativos de UG, Fonte e Saldo, pesquise em tempo real ou exporte a relação completa para Excel. <b>Clique em qualquer linha</b> para abrir a ficha cadastral no modal.</p>
+    <p class="sec-nota">Relação auditada das <b>{distinct_catr_ncs} Notas de Crédito distintas</b> ({len(linhas)} lançamentos de dotação) recebidas pelas 10 UGs executoras no âmbito da Operação Catrimani II. Utilize os filtros interativos de UG, Fonte e Saldo, pesquise em tempo real ou exporte a relação completa para Excel. <b>Clique em qualquer linha</b> para abrir a ficha cadastral no modal.</p>
     <div class="tbl-tools">
       <input type="search" id="flt-catr-busca" class="tbl-search" placeholder="Buscar por NC, Favorecido, Objeto, ND ou PI…" oninput="bcmsFiltraCatrimani()">
       <button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportCatrimaniExcel()" title="Baixar relatório completo da Operação Catrimani em planilha Excel formatada">
@@ -2015,7 +2044,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="6"><b>TOTAL CATRIMANI · {len(linhas)} NOTAS DE CRÉDITO</b></td>
+            <td colspan="6"><b>TOTAL CONSOLIDADO · {distinct_catr_ncs} NOTAS DE CRÉDITO ({len(linhas)} ITENS)</b></td>
             <td class="num"><b>{esc(brl(tot["prov"]))}</b></td>
             <td class="num"><b>{esc(brl(tot["emp"]))}</b></td>
             <td class="num anchor"><b>{esc(brl(tot["cred"]))}</b></td>
@@ -2028,7 +2057,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
       <span class="pag-info" id="pag-catr-txt" style="font-size:0.8125rem;color:var(--ink-muted);font-weight:600;">Página 1 de {tot_paginas_catr} (Exibindo 1–{min(25, len(linhas))} de {len(linhas)})</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button type="button" class="flt-limpa" id="btn-catr-ant" onclick="bcmsPaginaCatrimani(-1)" disabled>‹ Anterior</button>
-        <button type="button" class="flt-limpa" id="btn-catr-prox" onclick="bcmsPaginaCatrimani(1)"' + (' disabled' if tot_paginas_catr <= 1 else '') + '>Próxima ›</button>
+        <button type="button" class="flt-limpa" id="btn-catr-prox" onclick="bcmsPaginaCatrimani(1)"{" disabled" if tot_paginas_catr <= 1 else ""}>Próxima ›</button>
       </div>
     </div>
   </section>
@@ -2227,6 +2256,8 @@ CSS = r"""
 
   --focus:          #059669;
   --track:          #E2E8F0;
+  --ok:             #10B981;
+  --bad:            #EF4444;
 
   /* Estágios Funil */
   --stg1: #1C4A73;
@@ -2298,6 +2329,8 @@ CSS = r"""
 
     --focus:          #34D399;
     --track:          #1E293B;
+    --ok:             #34D399;
+    --bad:            #F87171;
 
     --stg1: #60A5FA;
     --stg2: #93C5FD;
@@ -2357,6 +2390,8 @@ CSS = r"""
 
   --focus:          #34D399;
   --track:          #1E293B;
+  --ok:             #34D399;
+  --bad:            #F87171;
 
   --stg1: #60A5FA;
   --stg2: #93C5FD;
@@ -3004,9 +3039,9 @@ table.tbl, table.det, table.tbl-hist {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
-  min-width: 860px;
-  font-size: 0.875rem;
-  line-height: 1.45;
+  min-width: 800px;
+  font-size: 0.8125rem;
+  line-height: 1.25;
 }
 
 table.tbl th, table.det th, table.tbl-hist th {
@@ -3018,9 +3053,9 @@ table.tbl th, table.det th, table.tbl-hist th {
   font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-align: left;
-  padding: 12px 18px;
+  padding: 6px 10px;
   white-space: nowrap;
   border-bottom: 2px solid var(--border);
   user-select: none;
@@ -3037,10 +3072,12 @@ table.tbl th .sort, table.det th .sort, table.tbl-hist th .sort {
 }
 
 table.tbl td, table.det td, table.tbl-hist td {
-  padding: 12px 18px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--ink);
   vertical-align: middle;
+  font-size: 0.8125rem;
+  line-height: 1.25;
 }
 
 table.tbl td.num, table.det td.num, table.tbl-hist td.num {
@@ -3048,51 +3085,59 @@ table.tbl td.num, table.det td.num, table.tbl-hist td.num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  font-size: 0.84rem;
+  font-size: 0.8125rem;
   letter-spacing: -0.01em;
-  padding-left: 18px;
-  padding-right: 18px;
-  min-width: 140px;
+  padding-left: 10px;
+  padding-right: 10px;
+  min-width: 110px;
 }
 
 table.tbl td.col-ug, table.tbl th.col-ug {
-  min-width: 90px;
+  min-width: 75px;
+  white-space: nowrap;
 }
 
 table.tbl td.col-nome, table.tbl th.col-nome {
-  min-width: 220px;
+  min-width: 180px;
 }
 
 table.tbl td.col-moeda, table.tbl th.col-moeda,
 table.det td.col-moeda, table.det th.col-moeda {
-  min-width: 145px;
+  min-width: 115px;
 }
 
 table.tbl td.col-pct, table.tbl th.col-pct {
-  min-width: 155px;
-  padding-right: 22px;
+  min-width: 135px;
+  padding-right: 12px;
 }
 
 .bar-pct-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   justify-content: flex-end;
 }
 
 .bar-pct-track {
   flex: 1;
   height: 8px;
-  background: var(--track);
+  background: var(--neutral-200, #E2E8F0);
   border-radius: 4px;
   overflow: hidden;
-  min-width: 65px;
+  min-width: 60px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="dark"] .bar-pct-track {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .bar-pct-fill {
   height: 100%;
   border-radius: 4px;
   transition: width 0.3s ease;
+  min-width: 2px;
 }
 
 .bar-pct-val {
@@ -3108,6 +3153,7 @@ table.tbl th.anchor, table.det th.anchor, table.tbl-hist th.anchor,
 table.tbl tfoot td.anchor, table.det tfoot td.anchor, table.tbl-hist tfoot td.anchor {
   font-weight: 700;
   color: var(--rm12-green, #15803D);
+  cursor: pointer;
 }
 
 :root[data-theme="dark"] table.tbl td.anchor,
@@ -3122,20 +3168,34 @@ table.tbl tfoot td.anchor, table.det tfoot td.anchor, table.tbl-hist tfoot td.an
   color: #34D399;
 }
 
-table.tbl tbody tr:hover, table.det tbody tr:hover, table.tbl-hist tbody tr:hover {
-  background: var(--bg-subtle);
+table.tbl tbody tr:hover, table.det tbody tr:hover, table.tbl-hist tbody tr:hover,
+tr.tr-click:hover, tr.cel-row:hover {
+  background: rgba(37, 99, 235, 0.07) !important;
+}
+
+:root[data-theme="dark"] table.tbl tbody tr:hover,
+:root[data-theme="dark"] table.det tbody tr:hover,
+:root[data-theme="dark"] table.tbl-hist tbody tr:hover,
+:root[data-theme="dark"] tr.tr-click:hover,
+:root[data-theme="dark"] tr.cel-row:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+tr.tr-click, tr.cel-row {
+  cursor: pointer;
 }
 
 table.tbl tfoot td, table.det tfoot td, table.tbl-hist tfoot td {
-  padding: 14px 18px;
+  padding: 8px 12px;
   font-weight: 800;
   background: var(--bg-subtle);
   border-top: 2px solid var(--border-strong);
   color: var(--ink);
+  font-size: 0.8125rem;
 }
 
 table.tbl tfoot td.tfoot-label {
-  padding-right: 28px;
+  padding-right: 20px;
   white-space: nowrap;
 }
 
@@ -3144,21 +3204,19 @@ table.tbl tfoot td.num, table.det tfoot td.num, table.tbl-hist tfoot td.num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
-  min-width: 140px;
+  min-width: 110px;
 }
-.det .obj { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
-/* [COMPACTA] lista de NC: linhas mais baixas e mais texto útil visível.
-   Reduz padding/fonte (46px -> ~32px por linha) e devolve à descrição o espaço
-   liberado pelo nº curto da NC. */
-.det-compact td { padding: 5px 10px; line-height: 1.35; }
-.det-compact th { padding: 8px 10px; }
-.det-compact tfoot td { padding: 8px 10px; }
-.det-compact .obj { max-width: 560px; color: var(--ink); }
-.det-compact .mono2 { font-size: 0.78125rem; }
-.det-compact .badge-age { padding: 1px 7px; font-size: 0.6875rem; }
-.det-compact .pill-fonte { padding: 1px 7px; font-size: 0.6875rem; }
-.nc-num { font-weight: 700; letter-spacing: .01em; }
-.nc-ug { color: var(--ink-muted); font-weight: 500; }
+.det .obj { max-width: 450px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
+.det-compact td { padding: 4px 8px; line-height: 1.25; }
+.det-compact th { padding: 6px 8px; }
+.det-compact tfoot td { padding: 6px 8px; }
+.det-compact .obj { max-width: 500px; color: var(--ink); }
+.det-compact .mono2 { font-size: 0.78125rem; white-space: nowrap; }
+.det-compact .badge-age { padding: 1px 6px; font-size: 0.6875rem; white-space: nowrap; }
+.det-compact .pill-fonte { padding: 1px 6px; font-size: 0.6875rem; white-space: nowrap; }
+.nc-num { font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.nc-ug { color: var(--ink-muted); font-weight: 500; white-space: nowrap; }
+.nc-lbl-wrap { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 /* selo de crédito vindo de mudança de ND (objeto herdado da NC de origem) */
 .tag-nd {
   display: inline-block; padding: 0 6px; margin-right: 5px; border-radius: 5px;
@@ -5054,39 +5112,54 @@ function bcmsDetalheNC(hid){
     }
   }
   if(!item && typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas){
+    var matching = [];
     for(var c = 0; c < CATRDATA.linhas.length; c++){
       var cl = CATRDATA.linhas[c];
-      if(cl.nc === hid || cl.hid === hid){
-        item = {
-          hid: cl.nc,
-          nc: cl.nc,
-          op: cl.op || 'DESCENTRALIZACAO DE CREDITO',
-          dia: cl.dia || '—',
-          dias: null,
-          status: (cl.cred > 0 ? 'Disponível' : 'Consumido Integral'),
-          status_slug: (cl.cred > 0 ? 'ok' : 'danger'),
-          emit_cod: cl.emit || '160073',
-          emit_nome: cl.emit_nome || 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
-          fav_cod: cl.ug || '160353',
-          fav_nome: cl.ug_nome || '6º BEC · OGU',
-          om_sigla: '6º BEC',
-          ptres: cl.acao || '21EM',
-          acao_desc: 'Ação Governamental ' + (cl.acao || '21EM'),
-          fonte: 'OGU',
-          nd: cl.nd || '—',
-          nd_desc: cl.nd_desc || 'Natureza de Despesa',
-          pi: cl.pi || '—',
-          pi_desc: cl.pi_nome || 'Plano Interno',
-          prov: cl.prov || 0,
-          bloq: 0,
-          emp: cl.emp || 0,
-          liq: 0,
-          pag: 0,
-          cred: cl.cred || 0,
-          obj: cl.obj || ''
-        };
-        break;
+      if(cl.nc === hid || cl.hid === hid || (cl.nc && cl.nc.indexOf(hid) !== -1)){
+        matching.push(cl);
       }
+    }
+    if(matching.length > 0){
+      var cl = matching[0];
+      var totProv = 0, totEmp = 0, totCred = 0, totLiq = 0, totPag = 0;
+      var subItens = [];
+      matching.forEach(function(m){
+        totProv += (m.prov || 0);
+        totEmp  += (m.emp || 0);
+        totCred += (m.cred || 0);
+        totLiq  += (m.liq || 0);
+        totPag  += (m.pag || 0);
+        subItens.push({acao: m.acao, pi: m.pi, nd: m.nd, val: m.prov || m.cred || 0});
+      });
+      item = {
+        hid: cl.nc,
+        nc: cl.nc,
+        op: cl.op || 'DESCENTRALIZACAO DE CREDITO',
+        dia: cl.dia || '—',
+        dias: null,
+        status: (totCred > 0.01 ? 'Disponível' : 'Executado Integral'),
+        status_slug: (totCred > 0.01 ? 'ok' : 'danger'),
+        emit_cod: cl.emit || '160073',
+        emit_nome: cl.emit_nome || 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
+        fav_cod: cl.ug || '—',
+        fav_nome: cl.ug_nome || ('UG ' + cl.ug),
+        om_sigla: cl.ug_nome || cl.ug,
+        ptres: cl.acao || '21EM',
+        acao_desc: 'Ação Governamental ' + (cl.acao || '21EM') + ' (Operação Catrimani II)',
+        fonte: (String(cl.ug).indexOf('167') === 0) ? 'FEx' : 'OGU',
+        nd: cl.nd || '—',
+        nd_desc: cl.nd_desc || 'Natureza de Despesa',
+        pi: cl.pi || '—',
+        pi_desc: cl.pi_nome || 'Plano Interno',
+        prov: totProv,
+        bloq: 0,
+        emp: totEmp,
+        liq: totLiq,
+        pag: totPag,
+        cred: totCred,
+        obj: cl.obj || '',
+        itens: subItens.length > 1 ? subItens : null
+      };
     }
   }
   if(!item && typeof NCDATA !== 'undefined' && NCDATA && NCDATA[hid]){
@@ -5844,16 +5917,24 @@ function bcmsFiltraCatrimani(){
   bcmsRenderCatrimani(1);
 }
 
+function bcmsFmtBRL(v){
+  return bcmsBRL(v || 0);
+}
+
 function bcmsRenderCatrimani(pag){
-  CATR_PAGE = pag || 1;
-  var total = CATR_FILTERED.length;
-  var totPages = Math.ceil(total / CATR_PER_PAGE) || 1;
+  var p = parseInt(pag, 10);
+  if(isNaN(p) || p < 1) p = 1;
+  CATR_PAGE = p;
+
+  var perPage = parseInt(CATR_PER_PAGE, 10) || 25;
+  var total = (CATR_FILTERED && CATR_FILTERED.length) ? CATR_FILTERED.length : 0;
+  var totPages = Math.ceil(total / perPage) || 1;
   if(CATR_PAGE > totPages) CATR_PAGE = totPages;
   if(CATR_PAGE < 1) CATR_PAGE = 1;
 
-  var start = (CATR_PAGE - 1) * CATR_PER_PAGE;
-  var end = Math.min(start + CATR_PER_PAGE, total);
-  var slice = CATR_FILTERED.slice(start, end);
+  var start = total > 0 ? (CATR_PAGE - 1) * perPage : 0;
+  var end = Math.min(start + perPage, total);
+  var slice = total > 0 ? CATR_FILTERED.slice(start, end) : [];
 
   var tbody = document.getElementById('tbody-catr-ncs');
   if(!tbody) return;
@@ -5863,9 +5944,11 @@ function bcmsRenderCatrimani(pag){
     h = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--ink-muted);">Nenhuma Nota de Crédito encontrada com os filtros selecionados.</td></tr>';
   } else {
     slice.forEach(function(it){
-      var stCor = it.cred > 0.01 ? 'var(--ok)' : 'var(--ink-muted)';
+      var stCor = it.cred > 0.01 ? 'var(--ok, #10B981)' : 'var(--ink-muted)';
       var stTxt = it.cred > 0.01 ? 'Com Saldo' : 'Empenhada';
-      h += '<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'' + (it.nc || '') + '\')">' +
+      h += '<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'' + (it.nc || '') + '\')" ' +
+           'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();bcmsOpenNCModalManual(\'' + (it.nc || '') + '\');}" ' +
+           'title="Clique para abrir a ficha cadastral completa desta NC">' +
            '<td>' + (it.dia || '') + '</td>' +
            '<td><b class="nc-mono">' + (it.nc || '') + '</b></td>' +
            '<td><b>' + (it.ug || '') + '</b> <span class="tbl-om-sub">' + (it.ug_nome || '') + '</span></td>' +
@@ -5881,16 +5964,25 @@ function bcmsRenderCatrimani(pag){
   }
   tbody.innerHTML = h;
 
+  var totalGlobal = (typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas) ? CATRDATA.linhas.length : total;
   var cnt = document.getElementById('cnt-catr-ncs');
-  if(cnt) cnt.textContent = 'Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ' Notas de Crédito';
+  if(cnt){
+    if(total === totalGlobal){
+      cnt.textContent = 'Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ' Notas de Crédito';
+    } else {
+      cnt.textContent = 'Filtrado: ' + total + ' de ' + totalGlobal + ' NCs (' + (total > 0 ? 'Exibindo ' + (start + 1) + '–' + end : 'Nenhum item') + ')';
+    }
+  }
 
   var ptxt = document.getElementById('pag-catr-txt');
-  if(ptxt) ptxt.textContent = 'Página ' + CATR_PAGE + ' de ' + totPages + ' (Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ')';
+  if(ptxt){
+    ptxt.textContent = 'Página ' + CATR_PAGE + ' de ' + totPages + ' (Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ')';
+  }
 
   var btnAnt = document.getElementById('btn-catr-ant');
   var btnProx = document.getElementById('btn-catr-prox');
   if(btnAnt) btnAnt.disabled = (CATR_PAGE <= 1);
-  if(btnProx) btnProx.disabled = (CATR_PAGE >= totPages);
+  if(btnProx) btnProx.disabled = (CATR_PAGE >= totPages || total === 0);
 }
 
 function bcmsPaginaCatrimani(delta){
@@ -5900,6 +5992,187 @@ function bcmsPaginaCatrimani(delta){
 function bcmsOpenNCModalManual(ncNum){
   if(!ncNum) return;
   bcmsDetalheNC(ncNum);
+}
+
+function bcmsDetalheUG(codUg){
+  if(!codUg) return;
+  var u = null;
+  if(typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.por_ug){
+    for(var i = 0; i < CATRDATA.por_ug.length; i++){
+      if(CATRDATA.por_ug[i].cod === String(codUg)){
+        u = CATRDATA.por_ug[i];
+        break;
+      }
+    }
+  }
+  if(!u) return;
+
+  var prov = u.prov || 0;
+  var emp  = u.emp || 0;
+  var cred = u.cred || 0;
+  var liq  = u.liq || 0;
+  var pag  = u.pag || 0;
+  var pctEmp = prov > 0 ? (emp / prov * 100) : 0;
+  var pctLiq = emp > 0 ? (liq / emp * 100) : 0;
+  var pctPag = liq > 0 ? (pag / liq * 100) : 0;
+
+  var semCor = pctEmp >= 80 ? 'var(--ok, #10B981)' : (pctEmp >= 60 ? 'var(--gold, #F59E0B)' : 'var(--bad, #EF4444)');
+  var statusBadge = cred > 0.01 ?
+    '<span class="m-badge-status-lg status-ok">● SALDO DISPONÍVEL: ' + bcmsFmtBRL(cred) + '</span>' :
+    '<span class="m-badge-status-lg status-warn">● 100% EMPENHADO / ZERADO</span>';
+
+  var h = '';
+  h += '<div class="m-accent-bar" style="background:linear-gradient(90deg, #15803D 0%, #10B981 50%, #3B82F6 100%);"></div>';
+  h += '<div class="m-content-wrap">';
+
+  /* Cabeçalho */
+  h += '  <div class="m-header-v2">';
+  h += '    <div class="m-header-meta-row">';
+  h += '      <span class="m-badge-op">🛡️ OPERAÇÃO CATRIMANI II · MULTI-UG</span>';
+  h += '      ' + statusBadge;
+  h += '    </div>';
+  h += '    <div class="m-title-row">';
+  h += '      <div class="m-nc-code-block">';
+  h += '        <h3 id="modal-title">UG ' + bcmsEsc(u.cod) + ' — ' + bcmsEsc(u.nome) + '</h3>';
+  h += '      </div>';
+  h += '      <button type="button" class="m-btn-pill" onclick="bcmsFiltrarPorUG(\'' + bcmsEsc(u.cod) + '\')" title="Ver no Extrato de Notas de Crédito">';
+  h += '        🔍 Filtrar no Extrato';
+  h += '      </button>';
+  h += '    </div>';
+  h += '    <div class="m-sub-meta">';
+  h += '      <span class="m-meta-chip">🏛️ Unidade Gestora Executora da Amazônia</span>';
+  h += '      <span class="m-meta-chip">📑 ' + (u.n_ncs || (u.ncs ? u.ncs.length : 0)) + ' Notas de Crédito Vinculadas</span>';
+  h += '      <span class="m-meta-chip">⚙️ Ação 21EM · Exercício 2026</span>';
+  h += '    </div>';
+  h += '  </div>';
+
+  /* Balanço Financeiro */
+  h += '  <div class="m-fin-section">';
+  h += '    <div class="m-fin-grid">';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Recebido (Dotação)</span>';
+  h += '        <span class="m-fin-val col-prov">' + bcmsFmtBRL(prov) + '</span>';
+  h += '        <span class="m-fin-sub">Total descentralizado à UG</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Empenhado</span>';
+  h += '        <span class="m-fin-val" style="color:var(--primary-600);">' + bcmsFmtBRL(emp) + '</span>';
+  h += '        <span class="m-fin-sub">' + pctEmp.toFixed(1) + '% da dotação</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Crédito Disponível Líquido</span>';
+  h += '        <span class="m-fin-val ' + (cred > 0.01 ? 'col-cred' : '') + '">' + bcmsFmtBRL(cred) + '</span>';
+  h += '        <span class="m-fin-sub">' + (cred > 0.01 ? 'Saldo livre p/ novos empenhos' : 'Dotação 100% comprometida') + '</span>';
+  h += '      </div>';
+  h += '      <div class="m-fin-card">';
+  h += '        <span class="m-fin-label">Liquidado / Pago</span>';
+  h += '        <span class="m-fin-val" style="font-size:1.15rem;">' + bcmsFmtBRL(liq) + '</span>';
+  h += '        <span class="m-fin-sub">Pago: ' + bcmsFmtBRL(pag) + ' (' + pctPag.toFixed(1) + '%)</span>';
+  h += '      </div>';
+  h += '    </div>';
+
+  /* Pipeline de Execução Orçamentária */
+  h += '    <div class="m-exec-pipeline">';
+  h += '      <div class="m-pipeline-header">';
+  h += '        <span class="m-pipeline-title">Funil de Execução da Unidade Gestora</span>';
+  h += '        <span class="m-pipeline-pct" style="color:' + semCor + ';">' + pctEmp.toFixed(1) + '% executado</span>';
+  h += '      </div>';
+  h += '      <div class="m-pipeline-stages">';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-info"><span class="m-stage-name">1. Empenho</span><span class="m-stage-val">' + pctEmp.toFixed(1) + '% (' + bcmsFmtBRL(emp) + ')</span></div>';
+  h += '          <div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, Math.max(2, pctEmp)) + '%;background:' + semCor + ';"></div></div>';
+  h += '        </div>';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-info"><span class="m-stage-name">2. Liquidação</span><span class="m-stage-val">' + pctLiq.toFixed(1) + '% s/ empenho (' + bcmsFmtBRL(liq) + ')</span></div>';
+  h += '          <div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, Math.max(2, pctLiq)) + '%;background:#3B82F6;"></div></div>';
+  h += '        </div>';
+  h += '        <div class="m-stage-item">';
+  h += '          <div class="m-stage-info"><span class="m-stage-name">3. Pagamento</span><span class="m-stage-val">' + pctPag.toFixed(1) + '% s/ liquidado (' + bcmsFmtBRL(pag) + ')</span></div>';
+  h += '          <div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, Math.max(2, pctPag)) + '%;background:#8B5CF6;"></div></div>';
+  h += '        </div>';
+  h += '      </div>';
+  h += '    </div>';
+  h += '  </div>';
+
+  /* Seção Despesas por ND */
+  if(u.nds_list && u.nds_list.length > 0){
+    h += '  <div class="m-justif-card" style="border-left-color:#15803D;margin-top:14px;">';
+    h += '    <div class="m-justif-header"><span class="m-justif-title">📊 Desdobramento por Natureza de Despesa (' + u.nds_list.length + ' NDs)</span></div>';
+    h += '    <div class="tbl-scroll"><table class="det det-compact" style="width:100%;font-size:0.78125rem;">';
+    h += '      <thead><tr><th>ND</th><th>Descrição</th><th class="num">Recebido</th><th class="num">Empenhado</th><th class="num">Disponível</th><th class="num">% Exec</th></tr></thead><tbody>';
+    for(var k = 0; k < u.nds_list.length; k++){
+      var ndo = u.nds_list[k];
+      var ndPct = ndo.prov > 0 ? (ndo.emp / ndo.prov * 100) : 0;
+      h += '<tr>' +
+           '<td class="mono2"><b>' + bcmsEsc(ndo.nd) + '</b></td>' +
+           '<td>' + bcmsEsc(ndo.nd_desc || '—') + '</td>' +
+           '<td class="num">' + bcmsFmtBRL(ndo.prov) + '</td>' +
+           '<td class="num">' + bcmsFmtBRL(ndo.emp) + '</td>' +
+           '<td class="num anchor" style="font-weight:700;">' + bcmsFmtBRL(ndo.cred) + '</td>' +
+           '<td class="num"><b>' + ndPct.toFixed(1) + '%</b></td>' +
+           '</tr>';
+    }
+    h += '    </tbody></table></div>';
+    h += '  </div>';
+  }
+
+  /* Seção Notas de Crédito da UG */
+  if(u.ncs && u.ncs.length > 0){
+    h += '  <div class="m-justif-card" style="border-left-color:var(--primary-600);margin-top:14px;">';
+    h += '    <div class="m-justif-header" style="display:flex;justify-content:space-between;align-items:center;">';
+    h += '      <span class="m-justif-title">📋 Notas de Crédito Recebidas (' + u.ncs.length + ' NCs)</span>';
+    h += '      <span style="font-size:0.75rem;color:var(--ink-muted);">Clique em qualquer NC para ver a ficha cadastral</span>';
+    h += '    </div>';
+    h += '    <div class="tbl-scroll" style="max-height:260px;"><table class="det det-compact" style="width:100%;font-size:0.78125rem;">';
+    h += '      <thead><tr><th>Emissão</th><th>Número NC</th><th>ND</th><th class="num">Recebido</th><th class="num">Empenhado</th><th class="num">Saldo Disp.</th><th>Status</th></tr></thead><tbody>';
+    for(var mIdx = 0; mIdx < u.ncs.length; mIdx++){
+      var nco = u.ncs[mIdx];
+      var sColor = nco.cred > 0.01 ? 'var(--ok, #10B981)' : 'var(--ink-muted)';
+      var sText = nco.cred > 0.01 ? 'Com Saldo' : 'Empenhada';
+      h += '<tr class="tr-click" onclick="bcmsOpenNCModalManual(\'' + bcmsEsc(nco.nc) + '\')" title="Abrir ficha da NC ' + bcmsEsc(nco.nc) + '">' +
+           '<td>' + bcmsEsc(nco.dia || '—') + '</td>' +
+           '<td><b class="nc-mono" style="color:var(--primary-600);">' + bcmsEsc(nco.nc) + '</b></td>' +
+           '<td class="mono2">' + bcmsEsc(nco.nd || '—') + '</td>' +
+           '<td class="num">' + bcmsFmtBRL(nco.prov) + '</td>' +
+           '<td class="num">' + bcmsFmtBRL(nco.emp) + '</td>' +
+           '<td class="num anchor" style="font-weight:700;">' + bcmsFmtBRL(nco.cred) + '</td>' +
+           '<td><span class="pill-nd" style="color:' + sColor + ';font-weight:700;">' + sText + '</span></td>' +
+           '</tr>';
+    }
+    h += '    </tbody></table></div>';
+    h += '  </div>';
+  }
+
+  /* Rodapé de Ações */
+  h += '  <div class="m-footer-actions-v2">';
+  h += '    <button type="button" class="m-btn-pill primary" onclick="bcmsFiltrarPorUG(\'' + bcmsEsc(u.cod) + '\')">🔍 Ver NCs Desta UG no Extrato</button>';
+  h += '    <button type="button" class="m-btn-pill" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
+  h += '  </div>';
+
+  h += '</div>';
+
+  document.getElementById('modal-body').innerHTML = h;
+  var modalEl = document.getElementById('modal');
+  modalEl.classList.add('open');
+  modalEl.setAttribute('aria-hidden', 'false');
+  var xBtn = document.querySelector('.modal-x');
+  if(xBtn) xBtn.focus();
+}
+
+function bcmsFiltrarPorUG(codUg){
+  bcmsCelClose();
+  var sel = document.getElementById('flt-catr-ug');
+  if(sel){
+    sel.value = codUg;
+  }
+  var busca = document.getElementById('flt-catr-busca');
+  if(busca) busca.value = '';
+  bcmsFiltraCatrimani();
+  var tab = document.getElementById('tab-catrimani-ncs');
+  if(tab && tab.scrollIntoView){
+    tab.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+  bcmsToast('🔍 Extrato filtrado pela UG ' + codUg);
 }
 
 function bcmsExportCatrimaniExcel(){
