@@ -2,7 +2,9 @@
 
 > **Sistema Independente de Monitoramento e Acompanhamento Orçamentário**  
 > **6º Batalhão de Engenharia de Construção (6º BEC)** — Boa Vista / RR (UASGs **160353** e **167353**)  
-> **Operação Catrimani II** — Ação Orçamentária **21EM** (Consolidado Multi-UGs / Comando Militar da Amazônia)
+> **12ª Região Militar (12ª RM)** · Comando Militar da Amazônia (CMA)  
+> **Operação Catrimani II** — Ação Orçamentária **21EM** (Consolidado Multi-UGs)  
+> 🌐 **URL Pública**: [https://decampos603.github.io/dashboard-credito-6bec-catrimani/](https://decampos603.github.io/dashboard-credito-6bec-catrimani/)
 
 ---
 
@@ -45,6 +47,7 @@ Dashboard-Credito-6BEC-Catrimani/
 │       └── deploy.yml              # Pipeline CI/CD GitHub Actions (GitHub Pages diário)
 ├── assets/
 │   └── logos/                      # Brasões heráldicos em alta resolução
+│       ├── 12RM.png                # Brasão da 12ª Região Militar (Região Mendonça Furtado)
 │       ├── 6BEC.png                # Brasão do 6º Batalhão de Engenharia de Construção
 │       └── CATRIMANI.png           # Distintivo oficial da Operação Catrimani
 ├── data/
