@@ -15,7 +15,7 @@ import openpyxl
 
 HDR_ROW, DATA_ROW = 8, 9
 UNIDADES = [
-    {"sigla": "6º BEC", "nome": "6º Batalhão de Engenharia de Construção", "ogu": "160353", "fex": "167353", "logo": "6BEC.png", "accent": "#059669", "key": "BEC6"},
+    {"sigla": "6º BEC", "nome": "6º Batalhão de Engenharia de Construção", "ogu": "160353", "fex": "167353", "logo": "6BEC.png", "accent": "#15803D", "key": "BEC6"},
 ]
 def _par(u):
     return [(u["ogu"], f'{u["sigla"]} · OGU'), (u["fex"], f'{u["sigla"]} · FEx')]
@@ -1859,41 +1859,41 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         sem_cor = "var(--ok)" if u["pct_emp"] >= 80.0 else ("var(--gold)" if u["pct_emp"] >= 60.0 else "var(--bad)")
         ug_rows.append(
             f'<tr>'
-            f'<td><b>{esc(u["cod"])}</b></td>'
-            f'<td><b>{esc(u["nome"])}</b></td>'
-            f'<td class="num">{esc(brl(u["prov"]))}</td>'
-            f'<td class="num" style="font-weight:700;">{esc(brl(u["emp"]))}</td>'
-            f'<td class="num anchor" style="font-weight:700;color:var(--accent);">{esc(brl(u["cred"]))}</td>'
-            f'<td class="num">{esc(brl(u["liq"]))}</td>'
-            f'<td class="num">{esc(brl(u["pag"]))}</td>'
-            f'<td class="num" style="min-width:130px;">'
-            f'  <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">'
-            f'    <div style="flex:1;height:8px;background:var(--track);border-radius:4px;overflow:hidden;">'
-            f'      <div style="width:{min(100.0, u["pct_emp"]):.1f}%;height:100%;background:{sem_cor};border-radius:4px;"></div>'
+            f'<td class="col-ug"><b>{esc(u["cod"])}</b></td>'
+            f'<td class="col-nome"><b>{esc(u["nome"])}</b></td>'
+            f'<td class="num col-moeda">{esc(brl(u["prov"]))}</td>'
+            f'<td class="num col-moeda" style="font-weight:700;">{esc(brl(u["emp"]))}</td>'
+            f'<td class="num col-moeda anchor" style="font-weight:700;">{esc(brl(u["cred"]))}</td>'
+            f'<td class="num col-moeda">{esc(brl(u["liq"]))}</td>'
+            f'<td class="num col-moeda">{esc(brl(u["pag"]))}</td>'
+            f'<td class="num col-pct">'
+            f'  <div class="bar-pct-wrap">'
+            f'    <div class="bar-pct-track">'
+            f'      <div class="bar-pct-fill" style="width:{min(100.0, u["pct_emp"]):.1f}%;background:{sem_cor};"></div>'
             f'    </div>'
-            f'    <span style="font-weight:700;font-size:0.8125rem;color:{sem_cor};">{u["pct_emp"]:.1f}%</span>'
+            f'    <span class="bar-pct-val" style="color:{sem_cor};">{u["pct_emp"]:.1f}%</span>'
             f'  </div>'
             f'</td>'
             f'</tr>'
         )
 
     tabela_ugs_html = (
-        f'<div class="tbl-wrap" style="margin-top:16px;">'
-        f'<table class="tbl" aria-label="Comparativo de UGs na Operação Catrimani">'
+        f'<div class="tbl-wrap tbl-scroll" style="margin-top:16px;">'
+        f'<table class="tbl tbl-ugs" aria-label="Comparativo de UGs na Operação Catrimani">'
         f'<thead><tr>'
-        f'<th>UG</th><th>Unidade Gestora Executora</th><th class="num">Recebido</th>'
-        f'<th class="num">Empenhado</th><th class="num">Crédito Disponível</th>'
-        f'<th class="num">Liquidado</th><th class="num">Pago</th><th class="num">% Execução</th>'
+        f'<th class="col-ug">UG</th><th class="col-nome">Unidade Gestora Executora</th><th class="num col-moeda">Recebido</th>'
+        f'<th class="num col-moeda">Empenhado</th><th class="num col-moeda">Crédito Disponível</th>'
+        f'<th class="num col-moeda">Liquidado</th><th class="num col-moeda">Pago</th><th class="num col-pct">% Execução</th>'
         f'</tr></thead>'
         f'<tbody>{"".join(ug_rows)}</tbody>'
         f'<tfoot><tr>'
-        f'<td colspan="2"><b>TOTAL CONSOLIDADO · {len(por_ug)} UGs EXECUTORAS</b></td>'
-        f'<td class="num"><b>{esc(brl(tot["prov"]))}</b></td>'
-        f'<td class="num"><b>{esc(brl(tot["emp"]))}</b></td>'
-        f'<td class="num anchor"><b>{esc(brl(tot["cred"]))}</b></td>'
-        f'<td class="num"><b>{esc(brl(tot["liq"]))}</b></td>'
-        f'<td class="num"><b>{esc(brl(tot["pag"]))}</b></td>'
-        f'<td class="num"><b>{tot["pct_emp"]:.1f}%</b></td>'
+        f'<td colspan="2" class="tfoot-label"><b>TOTAL CONSOLIDADO · {len(por_ug)} UGs EXECUTORAS</b></td>'
+        f'<td class="num col-moeda"><b>{esc(brl(tot["prov"]))}</b></td>'
+        f'<td class="num col-moeda"><b>{esc(brl(tot["emp"]))}</b></td>'
+        f'<td class="num col-moeda anchor"><b>{esc(brl(tot["cred"]))}</b></td>'
+        f'<td class="num col-moeda"><b>{esc(brl(tot["liq"]))}</b></td>'
+        f'<td class="num col-moeda"><b>{esc(brl(tot["pag"]))}</b></td>'
+        f'<td class="num col-pct"><b>{tot["pct_emp"]:.1f}%</b></td>'
         f'</tr></tfoot>'
         f'</table></div>'
     )
@@ -2098,12 +2098,18 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap" rel="stylesheet">
 <style>{CSS}</style></head>
 <body>
-<div class="bcms-bar" aria-hidden="true"></div>
+<div class="rm12-bar" aria-hidden="true"></div>
 <header class="topbar">
   <div class="brand">
-    <img class="brasao" id="emblema" src="assets/logos/{u0['logo']}" alt="Brasão {esc(u0['sigla'])}" loading="eager">
-    <div><h1 id="uTitulo">Crédito Disponível — {esc(u0['sigla'])}</h1>
-    <p class="subtitle"><span id="uNome">{esc(u0['nome'])}</span> · Tesouro Gerencial / SIAFI · <span id="uUasg">UASGs {u0['ogu']} (OGU) e {u0['fex']} (FEx)</span></p></div>
+    <div class="brasaos-group">
+      <img class="brasao brasao-rm" src="assets/logos/12RM.png" alt="Brasão 12ª Região Militar" title="12ª Região Militar — Região Mendonça Furtado" loading="eager">
+      <img class="brasao" id="emblema" src="assets/logos/{u0['logo']}" alt="Brasão {esc(u0['sigla'])}" loading="eager">
+    </div>
+    <div class="brand-text">
+      <div class="eschelon-tag" id="uEscalao">12ª REGIÃO MILITAR · COMANDO MILITAR DA AMAZÔNIA</div>
+      <h1 id="uTitulo">Crédito Disponível — {esc(u0['sigla'])}</h1>
+      <p class="subtitle"><span id="uNome">{esc(u0['nome'])}</span> · Tesouro Gerencial / SIAFI · <span id="uUasg">UASGs {u0['ogu']} (OGU) e {u0['fex']} (FEx)</span></p>
+    </div>
   </div>
   <div class="topbar-r">
     <div class="selo-wrap"><span class="selo"><span class="live-dot" aria-hidden="true"></span> Posição {esc(posicao)}</span><span class="selo-delay">⏱ dados com ~24h de defasagem</span></div>
@@ -2173,32 +2179,48 @@ CSS = r"""
   --border-strong: var(--neutral-300);
   --border-focus:  #2563EB;
 
+  /* ==========================================
+     HERÁLDICA & IDENTIDADE 12ª REGIÃO MILITAR
+     ========================================== */
+  --rm12-crimson:       #991B1B;
+  --rm12-crimson-dark:  #7F1D1D;
+  --rm12-crimson-soft:  rgba(153, 27, 27, 0.08);
+  --rm12-blue:          #1E3A8A;
+  --rm12-blue-dark:     #172554;
+  --rm12-blue-soft:     rgba(30, 58, 138, 0.08);
+  --rm12-gold:          #D97706;
+  --rm12-gold-dark:     #B45309;
+  --rm12-gold-soft:     rgba(217, 119, 6, 0.12);
+  --rm12-green:         #15803D;
+  --rm12-green-dark:    #166534;
+  --rm12-green-soft:    rgba(21, 128, 61, 0.10);
+
   /* Cores de Marca & Primárias */
-  --primary:        #1C4A73;
-  --primary-strong: #143A5C;
+  --primary:        var(--rm12-blue);
+  --primary-strong: var(--rm12-blue-dark);
   --primary-50:     #EFF6FF;
   --primary-600:    #2563EB;
 
   /* Cores Semânticas de Estado (WCAG AAA) */
-  --success:        #059669;
-  --success-strong: #047857;
-  --success-main:   #059669;
+  --success:        var(--rm12-green);
+  --success-strong: var(--rm12-green-dark);
+  --success-main:   #15803D;
   --success-bg:     #ECFDF5;
   --success-border: #A7F3D0;
   --hero-soft:      #F0FDF4;
 
-  --warning:        #D97706;
+  --warning:        var(--rm12-gold);
   --warning-ink:    #92400E;
   --warning-main:   #D97706;
   --warning-bg:     #FFFBEB;
   --warning-border: #FDE68A;
 
-  --danger:         #DC2626;
+  --danger:         var(--rm12-crimson);
   --danger-main:    #DC2626;
   --danger-bg:      #FEF2F2;
   --danger-border:  #FECACA;
 
-  --gold:           #D99B26;
+  --gold:           var(--rm12-gold);
   --gold-bg:        #FFFDF5;
   --gold-border:    #FDE68A;
   --gold-dark:      #92400E;
@@ -2493,32 +2515,79 @@ body {
 .toptab:hover:not(.on) { color: var(--ink); background: rgba(0,0,0,0.03); }
 :root[data-theme="dark"] .toptab:hover:not(.on) { background: rgba(255,255,255,0.04); }
 
-/* Topbar & Header */
-.bcms-bar {
-  height: 4px;
-  background: linear-gradient(to right, var(--accent, #CE2B2B) 0%, var(--accent, #CE2B2B) 65%, var(--primary-600) 65%, var(--primary-600) 100%);
+/* Topbar & Header 12ª RM */
+.rm12-bar {
+  height: 5px;
+  background: linear-gradient(
+    to right,
+    var(--rm12-crimson) 0%,
+    var(--rm12-crimson) 24%,
+    var(--rm12-gold) 24%,
+    var(--rm12-gold) 28%,
+    var(--rm12-blue) 28%,
+    var(--rm12-blue) 66%,
+    var(--rm12-gold) 66%,
+    var(--rm12-gold) 68%,
+    var(--rm12-green) 68%,
+    var(--rm12-green) 100%
+  );
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
+.bcms-bar { display: none; }
 .topbar {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
-  padding: 16px 24px;
+  padding: 14px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
 }
 .brand { display: flex; align-items: center; gap: 14px; }
+.brasaos-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
 .brasao {
   width: 48px;
   height: 48px;
   object-fit: contain;
   flex: none;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.16));
+  transition: transform 0.2s var(--ease-spring);
+}
+.brasao:hover {
+  transform: scale(1.06);
+}
+.brasao-rm {
+  border-radius: 4px;
+}
+.brand-text { display: flex; flex-direction: column; }
+.eschelon-tag {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rm12-gold);
+  margin-bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.eschelon-tag::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rm12-crimson);
 }
 h1 {
   font-family: var(--serif);
@@ -2917,16 +2986,30 @@ h1 {
   border-color: var(--border-focus);
 }
 .tbl-count { font-size: 0.78125rem; color: var(--ink-muted); margin-left: auto; font-weight: 500; }
-.tbl-scroll {
+/* ==========================================================================
+   SISTEMA DE TABELAS & ALINHAMENTO COGNITIVO (WCAG 2.2 AAA + TUFTE DATA-VIZ)
+   ========================================================================== */
+.tbl-wrap, .tbl-scroll {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg-surface);
   box-shadow: var(--shadow);
+  margin: 16px 0;
+  max-width: 100%;
 }
 
-table.det { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
-.det th {
+table.tbl, table.det, table.tbl-hist {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  min-width: 860px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+table.tbl th, table.det th, table.tbl-hist th {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -2937,29 +3020,132 @@ table.det { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   text-align: left;
-  padding: 12px 14px;
-  cursor: pointer;
+  padding: 12px 18px;
   white-space: nowrap;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
   user-select: none;
 }
-.det th.num, .det td.num { text-align: right; }
-.det th .sort { display: inline-block; width: 12px; color: var(--success); }
-.det td {
-  padding: 10px 14px;
+
+table.tbl th.num, table.det th.num, table.tbl-hist th.num {
+  text-align: right;
+}
+
+table.tbl th .sort, table.det th .sort, table.tbl-hist th .sort {
+  display: inline-block;
+  width: 12px;
+  color: var(--rm12-gold);
+}
+
+table.tbl td, table.det td, table.tbl-hist td {
+  padding: 12px 18px;
   border-bottom: 1px solid var(--border);
   color: var(--ink);
+  vertical-align: middle;
 }
-.det td.num { font-weight: 500; }
-.det td.anchor, .det th.anchor, .det tfoot td.anchor {
+
+table.tbl td.num, table.det td.num, table.tbl-hist td.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  letter-spacing: -0.01em;
+  padding-left: 18px;
+  padding-right: 18px;
+  min-width: 140px;
+}
+
+table.tbl td.col-ug, table.tbl th.col-ug {
+  min-width: 90px;
+}
+
+table.tbl td.col-nome, table.tbl th.col-nome {
+  min-width: 220px;
+}
+
+table.tbl td.col-moeda, table.tbl th.col-moeda,
+table.det td.col-moeda, table.det th.col-moeda {
+  min-width: 145px;
+}
+
+table.tbl td.col-pct, table.tbl th.col-pct {
+  min-width: 155px;
+  padding-right: 22px;
+}
+
+.bar-pct-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.bar-pct-track {
+  flex: 1;
+  height: 8px;
+  background: var(--track);
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 65px;
+}
+
+.bar-pct-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bar-pct-val {
   font-weight: 700;
-  color: var(--success);
+  font-size: 0.8125rem;
+  font-family: var(--mono);
+  min-width: 44px;
+  text-align: right;
 }
-:root[data-theme="dark"] .det td.anchor,
-:root[data-theme="dark"] .det tfoot td.anchor {
+
+table.tbl td.anchor, table.det td.anchor, table.tbl-hist td.anchor,
+table.tbl th.anchor, table.det th.anchor, table.tbl-hist th.anchor,
+table.tbl tfoot td.anchor, table.det tfoot td.anchor, table.tbl-hist tfoot td.anchor {
+  font-weight: 700;
+  color: var(--rm12-green, #15803D);
+}
+
+:root[data-theme="dark"] table.tbl td.anchor,
+:root[data-theme="dark"] table.det td.anchor,
+:root[data-theme="dark"] table.tbl-hist td.anchor,
+:root[data-theme="dark"] table.tbl th.anchor,
+:root[data-theme="dark"] table.det th.anchor,
+:root[data-theme="dark"] table.tbl-hist th.anchor,
+:root[data-theme="dark"] table.tbl tfoot td.anchor,
+:root[data-theme="dark"] table.det tfoot td.anchor,
+:root[data-theme="dark"] table.tbl-hist tfoot td.anchor {
   color: #34D399;
 }
-.det tbody tr:hover { background: var(--bg-subtle); }
+
+table.tbl tbody tr:hover, table.det tbody tr:hover, table.tbl-hist tbody tr:hover {
+  background: var(--bg-subtle);
+}
+
+table.tbl tfoot td, table.det tfoot td, table.tbl-hist tfoot td {
+  padding: 14px 18px;
+  font-weight: 800;
+  background: var(--bg-subtle);
+  border-top: 2px solid var(--border-strong);
+  color: var(--ink);
+}
+
+table.tbl tfoot td.tfoot-label {
+  padding-right: 28px;
+  white-space: nowrap;
+}
+
+table.tbl tfoot td.num, table.det tfoot td.num, table.tbl-hist tfoot td.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+  min-width: 140px;
+}
 .det .obj { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
 /* [COMPACTA] lista de NC: linhas mais baixas e mais texto útil visível.
    Reduz padding/fonte (46px -> ~32px por linha) e devolve à descrição o espaço
@@ -4126,9 +4312,11 @@ function trocaOMDS(btn){
   document.querySelectorAll('.omds-nav .omds').forEach(function(b){b.classList.remove('on');b.setAttribute('aria-current','false');});
   btn.classList.add('on');btn.setAttribute('aria-current','true');
   document.querySelectorAll('.unidade').forEach(function(s){s.style.display=(s.getAttribute('data-key')===key)?'':'none';});
+  var esc=document.getElementById('uEscalao');
   if(key==='CATRIMANI'){
     document.documentElement.style.setProperty('--accent','#15803D');
     var em=document.getElementById('emblema');if(em){em.src='assets/logos/CATRIMANI.png';em.alt='Brasão Operação Catrimani';}
+    if(esc)esc.textContent='OPERAÇÃO CONJUNTA · TERRITÓRIO INDÍGENA YANOMAMI / RORAIMA';
     var t=document.getElementById('uTitulo');if(t)t.textContent='Operação Catrimani II — Execução Orçamentária Multi-UGs';
     var n=document.getElementById('uNome');if(n)n.textContent='Ação Governamental 21EM · Comando Militar da Amazônia (CMA)';
     var uu=document.getElementById('uUasg');if(uu)uu.textContent='Acompanhamento Orçamentário de 10 Unidades Gestoras Executoras';
@@ -4137,8 +4325,9 @@ function trocaOMDS(btn){
       bcmsInitCatrimani();
     }
   } else if(key==='HISTORICO'){
-    document.documentElement.style.setProperty('--accent','#059669');
+    document.documentElement.style.setProperty('--accent','#15803D');
     var em=document.getElementById('emblema');if(em){em.src='assets/logos/6BEC.png';em.alt='Brasão 6º BEC';}
+    if(esc)esc.textContent='6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO · 12ª RM';
     var t=document.getElementById('uTitulo');if(t)t.textContent='Histórico de Notas de Crédito — 6º BEC';
     var n=document.getElementById('uNome');if(n)n.textContent='6º Batalhão de Engenharia de Construção — Registro Geral de NCs';
     var uu=document.getElementById('uUasg');if(uu)uu.textContent='UASGs 160353 (OGU) e 167353 (FEx) · Exercício 2026';
@@ -4150,6 +4339,7 @@ function trocaOMDS(btn){
     var u=UNIDADES[key];if(!u)return;
     document.documentElement.style.setProperty('--accent',u.accent);
     var em=document.getElementById('emblema');if(em){em.src='assets/logos/'+u.logo;em.alt='Brasão '+u.sigla;}
+    if(esc)esc.textContent='12ª REGIÃO MILITAR · COMANDO MILITAR DA AMAZÔNIA';
     var t=document.getElementById('uTitulo');if(t)t.textContent='Crédito Disponível — '+u.sigla;
     var n=document.getElementById('uNome');if(n)n.textContent=u.nome;
     var uu=document.getElementById('uUasg');if(uu)uu.textContent='UASGs '+u.ogu+' (OGU) e '+u.fex+' (FEx)';
