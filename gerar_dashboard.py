@@ -3944,7 +3944,6 @@ select option:checked, .flt option:checked, .hist-select option:checked {
 .omds-hist.on span { color: #fff; }
 .hist-icon { font-size: 1.25rem; }
 
-.unidade-hist { display: none; }
 .hist-header-card {
   margin-top: 24px;
   padding: 26px 30px;
@@ -4616,7 +4615,7 @@ function trocaOMDS(btn){
   var key=btn.getAttribute('data-key');
   document.querySelectorAll('.omds-nav .omds').forEach(function(b){b.classList.remove('on');b.setAttribute('aria-current','false');});
   btn.classList.add('on');btn.setAttribute('aria-current','true');
-  document.querySelectorAll('.unidade').forEach(function(s){s.style.display=(s.getAttribute('data-key')===key)?'':'none';});
+  document.querySelectorAll('.unidade').forEach(function(s){s.style.display=(s.getAttribute('data-key')===key)?'block':'none';});
   var esc=document.getElementById('uEscalao');
   if(key==='CATRIMANI'){
     document.documentElement.style.setProperty('--accent','#15803D');
@@ -4641,12 +4640,14 @@ function trocaOMDS(btn){
     document.documentElement.style.setProperty('--accent','#15803D');
     var em=document.getElementById('emblema');if(em){em.src='assets/logos/6BEC.png';em.alt='Brasão 6º BEC';}
     if(esc)esc.textContent='6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO · 12ª RM';
-    var t=document.getElementById('uTitulo');if(t)t.textContent='Histórico de Notas de Crédito — 6º BEC';
-    var n=document.getElementById('uNome');if(n)n.textContent='6º Batalhão de Engenharia de Construção — Registro Geral de NCs';
+    var t=document.getElementById('uTitulo');if(t)t.textContent='Histórico de Notas de Crédito — 6º BEC & OMDS';
+    var n=document.getElementById('uNome');if(n)n.textContent='6º Batalhão de Engenharia de Construção — Registro Geral de NCs no Exercício';
     var uu=document.getElementById('uUasg');if(uu)uu.textContent='UASGs 160353 (OGU) e 167353 (FEx) · Exercício 2026';
-    try{document.title='Histórico de NCs — 6º BEC';}catch(e){}
+    try{document.title='Histórico de NCs — 6º BEC & OMDS';}catch(e){}
     if(!HIST_INITIALIZED){
       bcmsInitHistorico();
+    } else {
+      bcmsRenderHistorico(HIST_PAGE || 1);
     }
   } else {
     var u=UNIDADES[key];if(!u)return;

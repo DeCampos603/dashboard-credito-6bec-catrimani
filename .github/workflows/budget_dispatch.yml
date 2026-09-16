@@ -2,7 +2,7 @@ name: Disparo Diário de Relatório Orçamentário (Ação 21EM · 6º BEC / Mul
 
 # Disparo automatizado diário do Relatório de Execução Orçamentária e Crédito
 # Operação Catrimani II (Ação Governamental 21EM) — 6º BEC e Multi-UGs
-# Governança: Base de Apoio Logístico do Exército (Ba Ap Log)
+# Governança: TC Int Saldanha - D10
 
 on:
   schedule:

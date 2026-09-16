@@ -541,7 +541,7 @@ def gerar_texto_mensagem(res):
     m.append(f"• *Crédito Disponível na Catrimani:* *{fmt_brl(c_tot['cred'])}* ({fmt_pct(c_tot['pct_cred'])} livre)")
     m.append(f"• *Liquidações Realizadas:* *{fmt_brl(c_tot['liq'])}* | *Pagamentos:* *{fmt_brl(c_tot['pag'])}*")
     m.append(f"• *Órgãos Repassadores dos Créditos:* *COTER (UG 160539)* e *COEx (UG 160504)*")
-    m.append(f"• *Governança & Auditoria Técnica:* *Base de Apoio Logístico do Exército (Ba Ap Log)*")
+    m.append("• *TC Int Saldanha - D10*")
     m.append("")
     m.append("📊 *Quadro Executivo Consolidado Multi-UGs (Ação 21EM):*")
     ugs_catr_ord = sorted(catr['por_ug'].items(), key=lambda x: x[1]['prov'] - x[1]['conc'], reverse=True)
