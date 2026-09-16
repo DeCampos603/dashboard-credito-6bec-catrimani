@@ -2325,7 +2325,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
   <p class="rodape-brand">⚙ 6º Batalhão de Engenharia de Construção · Operação Catrimani II · Comando Militar da Amazônia</p>
   <p><b>Metodologia:</b> Crédito Disponível = Provisão Recebida − Provisão Concedida − Despesas Empenhadas (saldo líquido não empenhado no Tesouro Gerencial / SIAFI). O detalhe é o saldo real por célula orçamentária (Ação · PI · ND). A aba Catrimani consolida o acompanhamento inter-unidades de todas as UGs executoras da Ação 21EM.</p>
   <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ Dados com defasagem de aproximadamente 24 horas.</b> · Painel atualizado em {esc(ger)}</p>
-  <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 2º Sgt De Campos (BCMS / 6º BEC) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> Seção de Execução Orçamentária &amp; Fiscalização Administrativa (SIAFI / Tesouro Gerencial)</p>
+  <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 3º Sgt De Campos (BCMS) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> TC Saldanha (Ba Ap Log)</p>
 </footer>
 <script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};</script>
 <script>{JS}</script>

@@ -572,8 +572,8 @@ def gerar_texto_mensagem(res):
     m.append("_(Visualização completa em tela, filtros dinâmicos, ranking das OMDS e extrato de NCs)_")
     m.append("")
     m.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    m.append("💻 *Desenvolvido por:* 2º Sgt De Campos (BCMS / 6º BEC)")
-    m.append("🔍 *Auditado por:* Seção de Execução Orçamentária & Fiscalização Administrativa (SIAFI/TG)")
+    m.append("💻 *Desenvolvido por:* 3º Sgt De Campos (BCMS)")
+    m.append("🔍 *Auditado por:* TC Saldanha (Ba Ap Log)")
 
     return "\n".join(m)
 
