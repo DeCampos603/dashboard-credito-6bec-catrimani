@@ -1423,18 +1423,24 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         tot_cred = ot.get("cred", 0.0)
         n_cel    = ot.get("n_ncs_cnt", ot.get("n_ncs", 0))
         if isinstance(n_cel, (set, list)): n_cel = len(n_cel)
-        exec_pct = pct(tot_emp, tot_prov)
+        
+        # Princípio SIAFI / MCASP: Dotação Líquida = Provisão Recebida - Provisão Concedida
+        prov_liq = max(0.0, tot_prov - tot_conc)
+        exec_pct = pct(tot_emp, prov_liq if prov_liq > 0 else tot_prov)
         liq_pct  = pct(tot_liq, tot_emp)
         pag_pct  = pct(tot_pag, tot_liq)
         u_stats.append({
             "key": u["key"], "sigla": u["sigla"], "nome": u["nome"], "logo": u["logo"],
             "accent": u["accent"], "ogu": u["ogu"], "fex": u["fex"],
-            "prov": tot_prov, "conc": tot_conc, "emp": tot_emp, "liq": tot_liq,
+            "prov": tot_prov, "conc": tot_conc, "prov_liq": prov_liq,
+            "emp": tot_emp, "liq": tot_liq,
             "pag": tot_pag, "cred": tot_cred, "exec_pct": exec_pct,
             "liq_pct": liq_pct, "pag_pct": pag_pct, "n_cel": n_cel
         })
     
-    cmd_prov = sum(x["prov"] for x in u_stats)
+    cmd_prov_bruta = sum(x["prov"] for x in u_stats)
+    cmd_conc = sum(x["conc"] for x in u_stats)
+    cmd_prov = max(0.0, cmd_prov_bruta - cmd_conc)  # Dotação Líquida Consolidada do Comando
     cmd_emp = sum(x["emp"] for x in u_stats)
     cmd_liq = sum(x["liq"] for x in u_stats)
     cmd_pag = sum(x["pag"] for x in u_stats)
@@ -1468,8 +1474,9 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             f'</div>'
         )
     
+    sub_prov_txt = f"Líquido: {brl(cmd_prov)} (Bruto {brl(cmd_prov_bruta)} − {brl(cmd_conc)} repasses)" if cmd_conc > 0 else "9 OMDS da Amazônia"
     kpis_cmd = (
-        kpi_tile("Provisão Recebida (Comando)", brl(cmd_prov), "9 OMDS da Amazônia", "prov", onclick="bcmsModalKpi('prov')") +
+        kpi_tile("Dotação Líquida (Comando)", brl(cmd_prov), sub_prov_txt, "prov", onclick="bcmsModalKpi('prov')") +
         kpi_tile("Empenhado (Comando)", brl(cmd_emp), f"{cmd_exec_pct:.1f}% de execução", "emp", onclick="bcmsModalKpi('emp')") +
         kpi_tile("Liquidado (Comando)", brl(cmd_liq), f"{cmd_liq_pct:.1f}% do empenhado", "liq", onclick="bcmsModalKpi('liq')") +
         kpi_tile("Crédito Disponível", brl(cmd_cred), f"9 OMDS monitoradas", "pag", onclick="bcmsModalKpi('cred')")
@@ -1488,6 +1495,8 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         _th_r("Organização Militar (OMDS)", False) +
         _th_r("UASGs", False) +
         _th_r("Provisão Recebida", True) +
+        _th_r("Repasses Cedidos", True) +
+        _th_r("Dotação Líquida", True) +
         _th_r("Empenhado", True) +
         _th_r("% Execução", True) +
         _th_r("Crédito Disponível", True) +
@@ -1502,6 +1511,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     for pos, u in enumerate(rank_exec, 1):
         medalha = "🥇 1º" if pos == 1 else ("🥈 2º" if pos == 2 else ("🥉 3º" if pos == 3 else f"{pos}º"))
         bar_w = min(100.0, u["exec_pct"])
+        conc_style = ' style="color:var(--bad, #EF4444);"' if u["conc"] > 0 else ' style="color:var(--ink-muted);"'
         body_rows.append(
             f'<tr class="cel-row tr-click" tabindex="0" role="button" onclick="' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'" '
             f'title="Clique para ir ao painel do {esc(u["sigla"])}" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();trocaOMDSPorKey(\'{u["key"]}\')}}">'
@@ -1509,6 +1519,8 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             f'<td><div class="tbl-om-cell"><img src="assets/logos/{u["logo"]}" alt="" class="tbl-om-logo" onerror="this.style.display=\'none\'"><b>{esc(u["sigla"])}</b> <span class="tbl-om-sub">{esc(u["nome"])}</span></div></td>'
             f'<td class="mono2">{esc(u["ogu"])} / {esc(u["fex"])}</td>'
             f'<td class="num" data-sort="{u["prov"]:.2f}">{esc(brl(u["prov"]))}</td>'
+            f'<td class="num"{conc_style} data-sort="{u["conc"]:.2f}">{esc(brl(u["conc"]))}</td>'
+            f'<td class="num" style="font-weight:700;" data-sort="{u["prov_liq"]:.2f}">{esc(brl(u["prov_liq"]))}</td>'
             f'<td class="num" data-sort="{u["emp"]:.2f}">{esc(brl(u["emp"]))}</td>'
             f'<td class="num" data-sort="{u["exec_pct"]:.2f}"><div class="tbl-pct-cell"><span style="font-weight:700">{u["exec_pct"]:.1f}%</span><div class="mini-track"><div class="mini-fill" style="width:{bar_w:.1f}%;background:{u["accent"]}"></div></div></div></td>'
             f'<td class="num anchor col-pos" data-sort="{u["cred"]:.2f}">{esc(brl(u["cred"]))}</td>'
@@ -1523,7 +1535,9 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     tfoot_tbl = (
         f'<tfoot><tr>'
         f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO (9 OMDS)</b></td>'
-        f'<td class="num"><b>{esc(brl(cmd_prov))}</b></td>'
+        f'<td class="num"><b>{esc(brl(cmd_prov_bruta))}</b></td>'
+        f'<td class="num" style="color:var(--bad, #EF4444);"><b>{esc(brl(cmd_conc))}</b></td>'
+        f'<td class="num" style="font-weight:700;color:var(--primary);"><b>{esc(brl(cmd_prov))}</b></td>'
         f'<td class="num"><b>{esc(brl(cmd_emp))}</b></td>'
         f'<td class="num"><b>{cmd_exec_pct:.1f}%</b></td>'
         f'<td class="num anchor col-pos"><b>{esc(brl(cmd_cred))}</b></td>'
@@ -1546,19 +1560,41 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     )
     
     hero_eq_cmd = (
-        f'<div class="hero-eq-box"><span class="eq-tag">PROVISÃO TOTAL</span><span class="eq-val num">{esc(brl(cmd_prov))}</span></div>'
+        f'<div class="hero-eq-box"><span class="eq-tag">DOTAÇÃO LÍQUIDA</span><span class="eq-val num">{esc(brl(cmd_prov))}</span></div>'
         f'<span class="hero-eq-sign">−</span>'
         f'<div class="hero-eq-box"><span class="eq-tag">EMPENHADO TOTAL</span><span class="eq-val num eq-emp">{esc(brl(cmd_emp))}</span></div>'
         f'<span class="hero-eq-sign">=</span>'
         f'<div class="hero-eq-box eq-highlight"><span class="eq-tag">DISPONÍVEL COMANDO</span><span class="eq-val num eq-disp">{esc(brl(cmd_cred))}</span></div>'
     )
     
+    banner_auditoria_html = f"""
+  <div class="audit-banner-card" style="background:linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.05));border:1px solid rgba(245, 158, 11, 0.35);border-radius:12px;padding:18px 24px;margin-bottom:24px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <span style="font-size:22px;">⚖️</span>
+      <h3 style="margin:0;font-size:1rem;font-weight:700;color:#F59E0B;text-transform:uppercase;letter-spacing:0.5px;">Auditoria Orçamentária SIAFI & Conciliação Interunidades (MCASP)</h3>
+    </div>
+    <div style="font-size:0.84rem;line-height:1.6;color:var(--ink);">
+      <p style="margin:0 0 8px 0;">
+        <b>1. Escopo Global das OMDS (OGU Ordinário Anual):</b> Os valores deste ranking consolidam o <b>orçamento anual integral</b> das 9 OMDS da Amazônia (todas as ações do OGU). O volume de <b>R$ 57,36 Milhões</b> da <b>12ª Região Militar</b> decorre de seu encargo de escalão intermediário e polo regional de subsistência de toda a Amazônia Ocidental (<b>Ação 212B — Alimentação das Forças Armadas: R$ 34,36 Milhões</b>, 60% do total da OM).
+      </p>
+      <p style="margin:0 0 8px 0;">
+        <b>2. Segregação da Operação Catrimani II (Ação 21EM):</b> Os recursos específicos da Catrimani totalizam <b>R$ 10,49 Milhões</b> para todo o Multi-UG (sendo R$ 1,16M no 6º BEC e apenas R$ 30,4 mil na 12ª RM). Eles estão apresentados e auditados de forma exclusiva nas abas <i>"🎖️ Operação Catrimani II"</i> e <i>"Visão por Ação Governamental"</i> sem duplicidades.
+      </p>
+      <p style="margin:0;">
+        <b>3. Expurgos de Repasses e Dupla Contagem:</b> A 12ª RM descentralizou <b>R$ 2.994.525,82 em provisões concedidas</b> (dos quais R$ 1.356.547,72 repassados diretamente às outras OMDS deste relatório, como 4º BAvEx, 1º B Log Sl, Pq R Mnt/12 e 6º BEC). Para expurgar duplicações no Total Consolidado do Comando e espelhar o MCASP/SIAFI, adota-se a <b>Dotação Líquida (Recebida − Concedida: R$ 157,39M)</b> como base oficial de execução orçamentária.
+      </p>
+    </div>
+  </div>
+"""
+
     frag = f"""<section class="unidade unidade-ranking" data-key="RANKING" data-sigla="Comando" style="display:none">
   <div class="ranking-header-card">
     <div class="rh-tag">🏆 BENCHMARKING ORÇAMENTÁRIO & FINANCEIRO</div>
     <h2 class="rh-title">Ranking & Comparativo Consolidado das OMDS</h2>
-    <p class="rh-desc">Visão executiva integrada das 9 Organizações Militares Diretamente Subordinadas Diretamente Subordinadas da Base de Apoio Logístico do Exército. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
+    <p class="rh-desc">Visão executiva integrada das 9 Organizações Militares Diretamente Subordinadas da Base de Apoio Logístico do Exército. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
   </div>
+
+  {banner_auditoria_html}
 
   <section class="hero hero-cmd">
     <div class="hero-l">
@@ -6114,11 +6150,13 @@ function bcmsDetalheOMDS(key){
   }
 
   var prov = u.prov || 0;
+  var conc = u.conc || 0;
+  var provLiq = Math.max(0, prov - conc);
   var emp  = u.emp || 0;
   var cred = u.cred || 0;
   var liq  = u.liq || 0;
   var pag  = u.pag || 0;
-  var pctEmp = prov > 0 ? (emp / prov * 100) : 0;
+  var pctEmp = provLiq > 0 ? (emp / provLiq * 100) : (prov > 0 ? (emp / prov * 100) : 0);
   var pctLiq = emp > 0 ? (liq / emp * 100) : 0;
   var pctPag = liq > 0 ? (pag / liq * 100) : 0;
 
@@ -6144,10 +6182,19 @@ function bcmsDetalheOMDS(key){
   h += '    </div>';
   h += '  </div>';
 
+  if(key === 'RM12' || (u.sigla && u.sigla.indexOf('12ª RM') !== -1)){
+    h += '<div style="background:rgba(245, 158, 11, 0.12);border:1px solid rgba(245, 158, 11, 0.35);border-radius:8px;padding:12px 16px;margin:12px 0 16px 0;font-size:0.83rem;line-height:1.55;color:var(--ink);">';
+    h += '<b>⚖️ Auditoria Orçamentária da 12ª Região Militar (SIAFI):</b><br>';
+    h += '• <b>Subsistência Regional:</b> A 12ª RM atua como polo centralizador de alimentação para todas as tropas da Amazônia Ocidental (AM, RR, RO, AC). Cerca de <b>R$ 34,36 Milhões (60%)</b> referem-se exclusivamente à <b>Ação 212B (Alimentação das Forças Armadas)</b>.<br>';
+    h += '• <b>Repasses Descentralizados:</b> Foram concedidos <b>R$ 2.994.525,82 em provisões repassadas</b> a outras OMs (dos quais R$ 1.356.547,72 transferidos diretamente para as demais OMDS deste painel). A dotação líquida real para empenho é de <b>' + bcmsFmtBRL(provLiq) + '</b>.<br>';
+    h += '• <b>Operação Catrimani (Ação 21EM):</b> Na Operação Catrimani, a dotação da 12ª RM é de <b>R$ 30.420,00</b> (recursos específicos detalhados na aba Catrimani).';
+    h += '</div>';
+  }
+
   h += '  <div class="m-fin-section">';
   h += '    <div class="m-fin-grid">';
-  h += '      <div class="m-fin-card"><span class="m-fin-label">Provisão Recebida</span><span class="m-fin-val col-prov">' + bcmsFmtBRL(prov) + '</span><span class="m-fin-sub">Dotação consolidada</span></div>';
-  h += '      <div class="m-fin-card"><span class="m-fin-label">Despesas Empenhadas</span><span class="m-fin-val" style="color:var(--primary-600);">' + bcmsFmtBRL(emp) + '</span><span class="m-fin-sub">' + pctEmp.toFixed(1) + '% de execução</span></div>';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Dotação Líquida</span><span class="m-fin-val col-prov">' + bcmsFmtBRL(provLiq) + '</span><span class="m-fin-sub">' + (conc > 0 ? ('Bruto: ' + bcmsFmtBRL(prov) + ' | Repassado: ' + bcmsFmtBRL(conc)) : 'Dotação total recebida') + '</span></div>';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Despesas Empenhadas</span><span class="m-fin-val" style="color:var(--primary-600);">' + bcmsFmtBRL(emp) + '</span><span class="m-fin-sub">' + pctEmp.toFixed(1) + '% de execução líquida</span></div>';
   h += '      <div class="m-fin-card"><span class="m-fin-label">Crédito Disponível</span><span class="m-fin-val ' + (cred > 0.01 ? 'col-cred' : '') + '">' + bcmsFmtBRL(cred) + '</span><span class="m-fin-sub">' + (cred > 0.01 ? 'Saldo livre em tela' : '100% comprometido') + '</span></div>';
   h += '      <div class="m-fin-card"><span class="m-fin-label">Liquidado / Pago</span><span class="m-fin-val" style="font-size:1.15rem;">' + bcmsFmtBRL(liq) + '</span><span class="m-fin-sub">Pago: ' + bcmsFmtBRL(pag) + ' (' + pctPag.toFixed(1) + '%)</span></div>';
   h += '    </div>';
@@ -6155,7 +6202,7 @@ function bcmsDetalheOMDS(key){
   h += '    <div class="m-exec-pipeline" style="margin-top:16px;">';
   h += '      <div class="m-pipeline-header"><span class="m-pipeline-title">Funil de Execução Orçamentária da OMDS</span><span class="m-pipeline-pct" style="color:' + semCor + ';">' + pctEmp.toFixed(1) + '% executado</span></div>';
   h += '      <div class="m-pipeline-stages">';
-  h += '        <div class="m-stage"><div class="m-stage-head"><span>1. Dotação Recebida</span><b>100%</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:100%;background:var(--prov);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(prov) + '</span></div>';
+  h += '        <div class="m-stage"><div class="m-stage-head"><span>1. Dotação Líquida</span><b>100%</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:100%;background:var(--prov);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(provLiq) + '</span></div>';
   h += '        <div class="m-stage"><div class="m-stage-head"><span>2. Empenhado</span><b>' + pctEmp.toFixed(1) + '%</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctEmp) + '%;background:var(--emp);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(emp) + '</span></div>';
   h += '        <div class="m-stage"><div class="m-stage-head"><span>3. Liquidado</span><b>' + pctLiq.toFixed(1) + '% do emp.</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctLiq) + '%;background:var(--gold);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(liq) + '</span></div>';
   h += '        <div class="m-stage"><div class="m-stage-head"><span>4. Pago</span><b>' + pctPag.toFixed(1) + '% do liq.</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctPag) + '%;background:var(--pag);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(pag) + '</span></div>';
