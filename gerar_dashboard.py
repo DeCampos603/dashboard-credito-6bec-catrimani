@@ -11,18 +11,38 @@ Acompanhamento Orçamentário Multi-UGs da Ação Governamental 21EM (Operação
 - Escreve site/index.html (autocontido: CSS Moderno + Google Fonts + SVG + Tabela + Excel) e site/data/history.json.
 """
 import os, sys, json, argparse, datetime, urllib.request, tempfile, html, math, re, shutil
+import unicodedata, csv
 import openpyxl
 
 HDR_ROW, DATA_ROW = 8, 9
 UNIDADES = [
     {"sigla": "6º BEC", "nome": "6º Batalhão de Engenharia de Construção", "ogu": "160353", "fex": "167353", "logo": "6BEC.png", "accent": "#15803D", "key": "BEC6"},
 ]
+
+OMDS_COMPARATIVO = [
+    {"sigla": "6º BEC", "nome": "6º Batalhão de Engenharia de Construção", "ogu": "160353", "fex": "167353", "logo": "6BEC.png", "accent": "#15803D", "key": "BEC6"},
+    {"sigla": "7º BIS", "nome": "Comando de Fronteira Roraima / 7º BIS", "ogu": "160352", "fex": "167352", "logo": "12RM.png", "accent": "#047857", "key": "BIS7"},
+    {"sigla": "1ª Bda Inf Sl", "nome": "Comando 1ª Brigada de Infantaria de Selva", "ogu": "160482", "fex": "167482", "logo": "12RM.png", "accent": "#1D4ED8", "key": "BDA1"},
+    {"sigla": "4º B Av Ex", "nome": "4º Batalhão de Aviação do Exército", "ogu": "160007", "fex": "167007", "logo": "12RM.png", "accent": "#D97706", "key": "BAV4"},
+    {"sigla": "1º B Log Sl", "nome": "1º Batalhão Logístico de Selva", "ogu": "160907", "fex": "167907", "logo": "12RM.png", "accent": "#B91C1C", "key": "BLOG1"},
+    {"sigla": "Pq R Mnt/12", "nome": "Parque Regional de Manutenção da 12ª RM", "ogu": "160021", "fex": "167021", "logo": "12RM.png", "accent": "#6D28D9", "key": "PQ12"},
+    {"sigla": "1º BIS (AMV)", "nome": "1º Batalhão de Infantaria de Selva (Amv)", "ogu": "160006", "fex": "167006", "logo": "12RM.png", "accent": "#0F766E", "key": "BIS1"},
+    {"sigla": "Cmdo 12ª RM", "nome": "Comando da 12ª Região Militar", "ogu": "160014", "fex": "167014", "logo": "12RM.png", "accent": "#991B1B", "key": "RM12"},
+    {"sigla": "Cmdo CMA", "nome": "Comando Militar da Amazônia", "ogu": "160016", "fex": "167016", "logo": "12RM.png", "accent": "#1E3A8A", "key": "CMA"}
+]
+
+UASG_TO_OMDS = {}
+for _u in OMDS_COMPARATIVO:
+    UASG_TO_OMDS[_u["ogu"]] = (_u, "OGU")
+    UASG_TO_OMDS[_u["fex"]] = (_u, "FEx")
+
 def _par(u):
     return [(u["ogu"], f'{u["sigla"]} · OGU'), (u["fex"], f'{u["sigla"]} · FEx')]
 
 ALVOS = [p for u in UNIDADES for p in _par(u)]
 FONTE_CURTA = {"160353": "160", "167353": "167"}
 DEFAULT_FILE_ID = None
+DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTVtnLCf2tvVO1-PFklLro4Y-ijBqw9h3psRi2y3Q69_1TSX75OPmph7yPK3zmANA/pub?gid=991377463&single=true&output=csv"
 HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(HERE, "site")
 DATA = os.path.join(HERE, "data")
@@ -30,33 +50,86 @@ HISTFILE = os.path.join(DATA, "history.json")
 DEFAULT_SRC = os.path.join(DATA, "CRÉDITO DISP 160353.xlsx")
 
 # ---------------- leitura ----------------
-def norm(s): return str(s).strip().upper() if s is not None else ""
+def norm(s):
+    if s is None: return ""
+    s = unicodedata.normalize("NFKD", str(s)).encode("ASCII", "ignore").decode("utf-8")
+    return s.strip().upper()
 
 def to_num(v):
     if v is None: return 0.0
     if isinstance(v, (int, float)): return float(v)
-    s = str(v).strip().replace("'", "")
+    s = str(v).strip().replace("'", "").replace('"', '')
     if s in ("", "-", "-9", "NAO SE APLICA", "NÃO SE APLICA"): return 0.0
-    try: return float(s)
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg = True
+        s = s[1:-1].strip()
+    try:
+        val = float(s.replace(".", "").replace(",", "."))
+        return -val if neg else val
     except ValueError:
-        try: return float(s.replace(".", "").replace(",", "."))
-        except ValueError: return 0.0
+        return 0.0
 
 def disp(v):
     s = "" if v is None else str(v).strip().replace("'", "")
     return "" if s in ("-9", "NAO SE APLICA", "NÃO SE APLICA") else s
 
-def baixar(file_id):
-    if not file_id:
-        return DEFAULT_SRC
-    url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+def baixar(target=None):
+    if target and os.path.exists(target):
+        return target
+
+    url = target if (target and target.startswith(("http://", "https://"))) else (os.environ.get("SHEETS_CSV_URL") or DEFAULT_CSV_URL)
+
+    if target and not target.startswith(("http://", "https://")) and len(target) > 15 and not os.path.exists(target):
+        url = f"https://docs.google.com/spreadsheets/d/{target}/export?format=xlsx"
+
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (dashboard-6bec)"})
-    tmp = os.path.join(tempfile.gettempdir(), "credito_disp_160353_download.xlsx")
-    with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
-        f.write(r.read())
-    if os.path.getsize(tmp) < 1000:
-        raise SystemExit("Download muito pequeno — verifique o compartilhamento público do arquivo.")
-    return tmp
+    ext = ".csv" if "output=csv" in url else ".xlsx"
+    tmp = os.path.join(tempfile.gettempdir(), f"credito_disp_160353_download{ext}")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+            f.write(r.read())
+        if os.path.getsize(tmp) < 500:
+            if os.path.exists(DEFAULT_SRC):
+                print(f"[AVISO] Download pequeno ({os.path.getsize(tmp)} bytes). Usando fallback: {DEFAULT_SRC}")
+                return DEFAULT_SRC
+            raise SystemExit("Download muito pequeno — verifique o link público da planilha.")
+        return tmp
+    except Exception as e:
+        if os.path.exists(DEFAULT_SRC):
+            print(f"[AVISO] Falha no download ({e}). Usando fallback: {DEFAULT_SRC}")
+            return DEFAULT_SRC
+        raise
+
+def ler_linhas(path):
+    is_csv = str(path).lower().endswith(".csv")
+    if not is_csv and not str(path).lower().endswith((".xlsx", ".xlsm")):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                first = f.read(500)
+                if "," in first or ";" in first:
+                    is_csv = True
+        except Exception:
+            pass
+
+    if is_csv:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            sample = f.read(2048)
+            f.seek(0)
+            delim = ";" if sample.count(";") > sample.count(",") else ","
+            reader = csv.reader(f, delimiter=delim)
+            for r in reader:
+                yield tuple(r)
+    else:
+        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+        ws = None
+        for nm in wb.sheetnames:
+            if "SALDO R$" in norm(nm) or "CREDITO DISP" in norm(nm) or "CRÉDITO DISP" in norm(nm):
+                ws = wb[nm]; break
+        if ws is None: ws = wb.active
+        for r in ws.iter_rows(values_only=True):
+            yield tuple(r)
+
 
 # ---------------- ETL ----------------
 def _dt_br(s):
@@ -129,15 +202,11 @@ def anotar_trocas_nd(res):
                                               "emit": orig["emit"], "op": orig["op"]}
 
 def etl(path):
-    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    ws = None
-    for nm in wb.sheetnames:
-        if "SALDO R$" in norm(nm) or "CREDITO DISP" in norm(nm) or "CRÉDITO DISP" in norm(nm):
-            ws = wb[nm]; break
-    if ws is None:
-        ws = wb.active
+    all_rows = list(ler_linhas(path))
+    if not all_rows:
+        raise SystemExit(f"Arquivo vazio ou ilegível: {path}")
 
-    header_rows = list(ws.iter_rows(min_row=1, max_row=15, values_only=True))
+    header_rows = all_rows[:35]
     hdr_row = None
     for r_idx, row_vals in enumerate(header_rows, 1):
         row_norm = [norm(v) for v in row_vals if v is not None]
@@ -150,9 +219,9 @@ def etl(path):
     hdr = {norm(val): c_idx for c_idx, val in enumerate(hdr_line) if norm(val)}
 
     def col(name, req=True):
-        c = hdr.get(name)
+        c = hdr.get(norm(name))
         if c is None and req:
-            raise SystemExit(f"Coluna '{name}' não encontrada (aba '{ws.title}')")
+            raise SystemExit(f"Coluna '{name}' não encontrada na planilha")
         return c
 
     C = dict(prov=col("PROVISAO RECEBIDA"), cred=col("CREDITO DISPONIVEL"),
@@ -168,7 +237,7 @@ def etl(path):
                 hdrL[nn] = c_idx
 
     def colL(name, fb_0idx):
-        c = hdrL.get(name)
+        c = hdrL.get(norm(name))
         return c if c is not None else fb_0idx
 
     CA    = colL("ACAO GOVERNO", 5)
@@ -183,7 +252,7 @@ def etl(path):
     CEMIT = colL("EMITENTE - UG", 0)
 
     data_row = None
-    for r_idx, row_vals in enumerate(header_rows[hdr_row:], hdr_row + 1):
+    for r_idx, row_vals in enumerate(all_rows[hdr_row:], hdr_row + 1):
         if len(row_vals) > 2 and row_vals[2] is not None:
             val3 = norm(row_vals[2]).replace("'", "")
             if val3.isdigit():
@@ -192,7 +261,7 @@ def etl(path):
         data_row = hdr_row + 1
 
     periodo = None
-    for row_vals in header_rows[max(0, hdr_row - 3):min(len(header_rows), hdr_row + 2)]:
+    for row_vals in all_rows[max(0, hdr_row - 4):min(len(all_rows), hdr_row + 2)]:
         for v in row_vals:
             if v:
                 vs = str(v).strip().upper()
@@ -206,6 +275,16 @@ def etl(path):
            for c, label in ALVOS}
     codigos_alvo = set(res.keys())
     ugs_presentes = set()
+
+    # Benchmarking e Comparativo de OMDS
+    omds_totais = {
+        u["key"]: {
+            "key": u["key"], "sigla": u["sigla"], "nome": u["nome"], "logo": u["logo"],
+            "accent": u["accent"], "ogu": u["ogu"], "fex": u["fex"],
+            "prov": 0.0, "conc": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "cred": 0.0,
+            "n_linhas": 0, "n_ncs": set()
+        } for u in OMDS_COMPARATIVO
+    }
 
     # Operação Catrimani
     catrimani_totais = {"prov": 0.0, "conc": 0.0, "dot": 0.0, "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0}
@@ -224,12 +303,29 @@ def etl(path):
         "167482": "CMDO 1ª BDA INF SL (FEx)",
         "160014": "CMDO 12ª RM",
         "160021": "PQ R MNT/12",
+        "160329": "BCMS",
+        "160238": "BA AP LOG",
+    }
+
+    siglas_padrao_ugs = {
+        "160007": "4º BAVEX",
+        "160353": "6º BEC",
+        "160352": "7º BIS",
+        "160482": "1ª BDA INF SL",
+        "160907": "1º B LOG SL",
+        "160016": "CMDO CMA",
+        "160006": "1º BIS (AMV)",
+        "167482": "1ª BDA (FEx)",
+        "160014": "CMDO 12ª RM",
+        "160021": "PQ R MNT/12",
+        "160329": "BCMS",
+        "160238": "BA AP LOG",
     }
 
     def get_val(row_tup, idx):
         return row_tup[idx] if idx is not None and 0 <= idx < len(row_tup) else None
 
-    for row in ws.iter_rows(min_row=data_row, values_only=True):
+    for row in all_rows[data_row - 1:]:
         if not row: continue
         ug_raw = get_val(row, 2)
         if ug_raw is None: continue
@@ -263,6 +359,29 @@ def etl(path):
                     cand = disp(row[ci])
                     if len(cand) > 10 and not cand.replace(".", "").replace(",", "").replace("-", "").isdigit():
                         obj = cand; break
+
+        is_nc = bool(nc and nc not in ("-9", "NAO SE APLICA", "NÃO SE APLICA"))
+
+        # Regra Mestre de Sanidade Orçamentária SIAFI/TG (Agente-Execucao-Orcamentaria/conhecimento/09):
+        # Se a linha não é Nota de Crédito (is_nc == False), somente processa se o emitente for a própria UG executora (emit == ug).
+        # Linhas sem NC onde emit != ug (ex: Emit=160907 -> Exec=160482) são cruzamentos interunidades/subtotais de controle
+        # no relatório do TG que duplicam empenhos e violam a invariante fiscal (Empenho <= Dotação).
+        if not is_nc and emit != ug:
+            continue
+
+        # Acúmulo de dados para o Benchmarking das OMDS da Amazônia
+        if ug in UASG_TO_OMDS:
+            u_info, u_fonte = UASG_TO_OMDS[ug]
+            ot = omds_totais[u_info["key"]]
+            ot["prov"] += prov
+            ot["conc"] += conc
+            ot["cred"] += cred
+            ot["emp"]  += emp
+            ot["liq"]  += liq
+            ot["pag"]  += pag
+            ot["n_linhas"] += 1
+            if nc and nc not in ("-9", "NAO SE APLICA", "NÃO SE APLICA"):
+                ot["n_ncs"].add(nc)
 
         # 1. 6º BEC (160353 OGU / 167353 FEx) - Visão Integral
         if ug in codigos_alvo:
@@ -316,8 +435,9 @@ def etl(path):
 
             if ug not in catrimani_por_ug:
                 nom = nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}")
+                sigla_m = siglas_padrao_ugs.get(ug, ug)
                 catrimani_por_ug[ug] = {
-                    "cod": ug, "nome": nom, "prov": 0.0, "conc": 0.0,
+                    "cod": ug, "sigla": sigla_m, "nome": nom, "prov": 0.0, "conc": 0.0,
                     "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0,
                     "ncs": [], "nds": {}
                 }
@@ -354,8 +474,7 @@ def etl(path):
 
     for d in res.values():
         for cel in d["celulas"].values():
-            cel["aloc"] = cel["cpos"]
-            cel["emp"]  = cel["cneg"]
+            cel["aloc"] = cel["cred"] + cel["emp"]
 
     anotar_trocas_nd(res)
 
@@ -378,7 +497,7 @@ def etl(path):
         dot_u = u_c["prov"] - u_c["conc"]
         u_c["dot"] = dot_u
         u_c["pct_emp"] = (u_c["emp"] / dot_u * 100.0) if dot_u > 0 else 0.0
-        u_c["pct_liq"] = (u_c["liq"] / dot_u * 100.0) if dot_u > 0 else 0.0
+        u_c["pct_liq"] = (u_c["liq"] / u_c["emp"] * 100.0) if u_c["emp"] > 0 else 0.0
         u_c["n_ncs"] = len(u_c["ncs"])
         u_c["nds_list"] = sorted(list(u_c["nds"].values()), key=lambda x: x["prov"], reverse=True)
     ugs_catr_list.sort(key=lambda x: x["prov"], reverse=True)
@@ -387,6 +506,10 @@ def etl(path):
     nds_catr_list.sort(key=lambda x: x["emp"], reverse=True)
 
     catrimani_ncs_distintas = len(set(x["nc"] for x in catrimani_linhas if x.get("nc")))
+
+    for ot in omds_totais.values():
+        ot["n_ncs_cnt"] = len(ot["n_ncs"])
+        ot["n_ncs"] = ot["n_ncs_cnt"]
 
     catrimani_data = {
         "totais": catrimani_totais,
@@ -397,7 +520,7 @@ def etl(path):
         "total_linhas_brutas": len(catrimani_linhas)
     }
 
-    return res, periodo, alertas, catrimani_data
+    return res, periodo, alertas, catrimani_data, omds_totais
 
 def atualizar_historico(res, data_str):
     os.makedirs(DATA, exist_ok=True)
@@ -599,10 +722,12 @@ def svg_tendencia(hist):
     return f'<div class="card chart wide"><div class="eyebrow">Tendência Histórica · Crédito Disponível Consolidado</div>{svg}{nota}</div>'
 
 # ---------------- componentes HTML ----------------
-def kpi_tile(label, valor, chip, cls, id_v=""):
+def kpi_tile(label, valor, chip, cls, id_v="", onclick=""):
     chip_html = f'<span class="chip">{esc(chip)}</span>' if chip else ""
     id_attr = f' id="{esc(id_v)}"' if id_v else ""
-    return (f'<div class="kpi kpi-{cls}"><div class="kpi-l">{esc(label)}</div>'
+    clk = onclick if onclick else f"bcmsModalKpi('{cls}')"
+    return (f'<div class="kpi kpi-{cls}" tabindex="0" role="button" onclick="{clk}" '
+            f'title="Clique para ver o detalhamento deste indicador (SIAFI)"><div class="kpi-l">{esc(label)}</div>'
             f'<div class="kpi-v num"{id_attr}>{esc(valor)}</div>{chip_html}</div>')
 
 def uasg_card(cod, d):
@@ -1286,20 +1411,21 @@ def svg_comparativo_exec(u_stats, media_cmd):
     svg = f'<svg viewBox="0 0 {W} {H}" class="svg" role="img" aria-label="Taxa de Execução Orçamentária por OMDS">{"".join(el)}</svg>'
     return f'<div class="card chart"><div class="eyebrow">Taxa de Execução Orçamentária (% Empenhado / Recebido)</div>{svg}</div>'
 
-def secao_comparativo_omds(res, hist, data_str, periodo):
+def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     u_stats = []
-    for u in UNIDADES:
-        alvos_u = _par(u)
-        tot_prov = sum(res[c]["prov"] for c, _ in alvos_u)
-        tot_conc = sum(res[c]["conc"] for c, _ in alvos_u)
-        tot_emp = sum(res[c]["emp"] for c, _ in alvos_u)
-        tot_liq = sum(res[c]["liq"] for c, _ in alvos_u)
-        tot_pag = sum(res[c]["pag"] for c, _ in alvos_u)
-        tot_cred = sum(res[c]["cred"] for c, _ in alvos_u)
-        n_cel = sum(len([c for c in res[cod]["celulas"].values() if c["cred"] > 0.005]) for cod, _ in alvos_u)
+    for u in OMDS_COMPARATIVO:
+        ot = omds_totais.get(u["key"], {})
+        tot_prov = ot.get("prov", 0.0)
+        tot_conc = ot.get("conc", 0.0)
+        tot_emp  = ot.get("emp", 0.0)
+        tot_liq  = ot.get("liq", 0.0)
+        tot_pag  = ot.get("pag", 0.0)
+        tot_cred = ot.get("cred", 0.0)
+        n_cel    = ot.get("n_ncs_cnt", ot.get("n_ncs", 0))
+        if isinstance(n_cel, (set, list)): n_cel = len(n_cel)
         exec_pct = pct(tot_emp, tot_prov)
-        liq_pct = pct(tot_liq, tot_emp)
-        pag_pct = pct(tot_pag, tot_liq)
+        liq_pct  = pct(tot_liq, tot_emp)
+        pag_pct  = pct(tot_pag, tot_liq)
         u_stats.append({
             "key": u["key"], "sigla": u["sigla"], "nome": u["nome"], "logo": u["logo"],
             "accent": u["accent"], "ogu": u["ogu"], "fex": u["fex"],
@@ -1331,22 +1457,22 @@ def secao_comparativo_omds(res, hist, data_str, periodo):
     podio_cards = []
     for u, pos, badge, cls in podio_order:
         podio_cards.append(
-            f'<div class="podium-step podium-{cls}" onclick="trocaOMDSPorKey(\'{u["key"]}\')" title="Clique para abrir o painel detalhado de {esc(u["sigla"])}">'
+            f'<div class="podium-step podium-{cls}" onclick="' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'" title="Clique para abrir o detalhamento completo de {esc(u["sigla"])}">'
             f'<div class="podium-badge">{badge}</div>'
-            f'<div class="podium-avatar-wrap"><img src="assets/logos/{u["logo"]}" alt="{esc(u["sigla"])}" class="podium-logo" onerror="this.style.display=\'none\'"></div>'
+            f'<div class="podium-avatar-wrap"><img src="assets/logos/{u["logo"]}" alt="{esc(u["sigla"])}" class="podium-logo" onerror="this.src=\'assets/logos/12RM.png\'"></div>'
             f'<div class="podium-sigla">{esc(u["sigla"])}</div>'
             f'<div class="podium-nome">{esc(u["nome"])}</div>'
             f'<div class="podium-stat-pill"><span class="stat-l">Execução</span><b class="stat-v num">{u["exec_pct"]:.1f}%</b></div>'
             f'<div class="podium-substat">Disponível: <span class="num">{esc(brl(u["cred"]))}</span></div>'
-            f'<button type="button" class="podium-btn" onclick="event.stopPropagation();trocaOMDSPorKey(\'{u["key"]}\')">Acessar Unidade ›</button>'
+            f'<button type="button" class="podium-btn" onclick="event.stopPropagation();' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'">Detalhar Unidade ›</button>'
             f'</div>'
         )
     
     kpis_cmd = (
-        kpi_tile("Provisão Recebida (Comando)", brl(cmd_prov), "6 OMDS", "prov") +
-        kpi_tile("Empenhado (Comando)", brl(cmd_emp), f"{cmd_exec_pct:.1f}% de execução", "emp") +
-        kpi_tile("Liquidado (Comando)", brl(cmd_liq), f"{cmd_liq_pct:.1f}% do empenhado", "liq") +
-        kpi_tile("Crédito Disponível", brl(cmd_cred), f"{cmd_n_cel} células ativas", "pag")
+        kpi_tile("Provisão Recebida (Comando)", brl(cmd_prov), "9 OMDS da Amazônia", "prov", onclick="bcmsModalKpi('prov')") +
+        kpi_tile("Empenhado (Comando)", brl(cmd_emp), f"{cmd_exec_pct:.1f}% de execução", "emp", onclick="bcmsModalKpi('emp')") +
+        kpi_tile("Liquidado (Comando)", brl(cmd_liq), f"{cmd_liq_pct:.1f}% do empenhado", "liq", onclick="bcmsModalKpi('liq')") +
+        kpi_tile("Crédito Disponível", brl(cmd_cred), f"9 OMDS monitoradas", "pag", onclick="bcmsModalKpi('cred')")
     )
     
     ch_cred = svg_comparativo_barras(u_stats, "cred", "Crédito Disponível por Unidade (R$)")
@@ -1377,7 +1503,7 @@ def secao_comparativo_omds(res, hist, data_str, periodo):
         medalha = "🥇 1º" if pos == 1 else ("🥈 2º" if pos == 2 else ("🥉 3º" if pos == 3 else f"{pos}º"))
         bar_w = min(100.0, u["exec_pct"])
         body_rows.append(
-            f'<tr class="cel-row" tabindex="0" role="button" onclick="trocaOMDSPorKey(\'{u["key"]}\')" '
+            f'<tr class="cel-row tr-click" tabindex="0" role="button" onclick="' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'" '
             f'title="Clique para ir ao painel do {esc(u["sigla"])}" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();trocaOMDSPorKey(\'{u["key"]}\')}}">'
             f'<td class="mono2" style="font-weight:700">{medalha}</td>'
             f'<td><div class="tbl-om-cell"><img src="assets/logos/{u["logo"]}" alt="" class="tbl-om-logo" onerror="this.style.display=\'none\'"><b>{esc(u["sigla"])}</b> <span class="tbl-om-sub">{esc(u["nome"])}</span></div></td>'
@@ -1390,13 +1516,13 @@ def secao_comparativo_omds(res, hist, data_str, periodo):
             f'<td class="num" data-sort="{u["liq_pct"]:.2f}">{u["liq_pct"]:.1f}%</td>'
             f'<td class="num" data-sort="{u["pag"]:.2f}">{esc(brl(u["pag"]))}</td>'
             f'<td class="num" data-sort="{u["n_cel"]}">{u["n_cel"]}</td>'
-            f'<td><button type="button" class="tbl-action-btn" onclick="event.stopPropagation();trocaOMDSPorKey(\'{u["key"]}\')">Abrir ›</button></td>'
+            f'<td><button type="button" class="tbl-action-btn" onclick="event.stopPropagation();' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'">Detalhar ›</button></td>'
             f'</tr>'
         )
     
     tfoot_tbl = (
         f'<tfoot><tr>'
-        f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO (6 OMDS)</b></td>'
+        f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO (9 OMDS)</b></td>'
         f'<td class="num"><b>{esc(brl(cmd_prov))}</b></td>'
         f'<td class="num"><b>{esc(brl(cmd_emp))}</b></td>'
         f'<td class="num"><b>{cmd_exec_pct:.1f}%</b></td>'
@@ -1414,7 +1540,7 @@ def secao_comparativo_omds(res, hist, data_str, periodo):
         f'<label class="visually-hidden" for="q-tab-ranking-det">Buscar</label>'
         f'<input type="search" id="q-tab-ranking-det" class="tbl-search" placeholder="Buscar no comparativo por OMDS, UASG..." oninput="bcmsSearch(this,\'tab-ranking-det\')">'
         f'<button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportTable(this,\'tab-ranking-det\',\'ranking_comparativo_omds\')" title="Baixar comparativo completo das OMDS em planilha formatada para Excel"><span class="btn-excel-ic">📊</span> Exportar Planilha Excel</button>'
-        f'<span class="tbl-count" id="cnt-tab-ranking-det" data-unit="unidades" aria-live="polite">6 unidades</span>'
+        f'<span class="tbl-count" id="cnt-tab-ranking-det" data-unit="unidades" aria-live="polite">9 unidades</span>'
         f'</div>'
         f'<div class="tbl-scroll" id="tab-ranking-det"><table class="det"><thead><tr>{ths}</tr></thead><tbody>{"".join(body_rows)}</tbody>{tfoot_tbl}</table></div>'
     )
@@ -1431,17 +1557,17 @@ def secao_comparativo_omds(res, hist, data_str, periodo):
   <div class="ranking-header-card">
     <div class="rh-tag">🏆 BENCHMARKING ORÇAMENTÁRIO & FINANCEIRO</div>
     <h2 class="rh-title">Ranking & Comparativo Consolidado das OMDS</h2>
-    <p class="rh-desc">Visão executiva integrada das 6 Organizações Militares Diretamente Subordinadas da Base de Apoio Logístico do Exército. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
+    <p class="rh-desc">Visão executiva integrada das 9 Organizações Militares Diretamente Subordinadas Diretamente Subordinadas da Base de Apoio Logístico do Exército. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
   </div>
 
   <section class="hero hero-cmd">
     <div class="hero-l">
-      <div class="eyebrow">Crédito Disponível · Consolidado do Comando (6 OMDS)</div>
+      <div class="eyebrow">Crédito Disponível · Consolidado do Comando (9 OMDS)</div>
       <div class="hero-num num">{esc(brl(cmd_cred))}</div>
       <div class="hero-eq">{hero_eq_cmd}</div>
     </div>
     <div class="hero-r">
-      <div class="delta flat">Consolidado das 12 UASGs (OGU + FEx)</div>
+      <div class="delta flat">Consolidado das 18 UASGs (OGU + FEx)</div>
       {svg_util(cmd_prov, cmd_emp, cmd_cred)}
     </div>
   </section>
@@ -1514,6 +1640,12 @@ def secao_historico_ncs(res, hist, data_str, periodo):
             if not nc:
                 continue
             key = (nc, cod)
+            op_str = (L.get("op") or "").upper()
+            emit_str = L.get("emit") or ""
+            prov_liq = L.get("prov", 0.0) - L.get("conc", 0.0)
+            crd_val = L.get("cred", 0.0)
+            is_det = ("DETALHAMENTO" in op_str) or (emit_str == cod and abs(prov_liq) < 0.01)
+
             if key not in todas_ncs:
                 todas_ncs[key] = {
                     "nc": nc, "uasg": cod, "fav_nome": d["nome"], "om_sigla": om_sigla,
@@ -1526,16 +1658,16 @@ def secao_historico_ncs(res, hist, data_str, periodo):
                     "pi_nome": L.get("pi_nome") or "",
                     "nd": L.get("nd") or "",
                     "nd_desc": L.get("nd_desc") or "",
+                    "nd_de": L.get("nd_de") or "",
                     "op": L.get("op") or "",
                     "obj": L.get("obj") or "",
                     "prov": 0.0, "cred_calc": 0.0, "emp_calc": 0.0,
                     "liq": 0.0, "pag": 0.0, "conc": 0.0,
+                    "is_det": is_det,
                     "linhas": []
                 }
             it = todas_ncs[key]
             it["linhas"].append(L)
-            val = L.get("prov", 0.0) or (L.get("cred", 0.0) if L.get("cred", 0.0) > 0 else 0.0)
-            it["prov"] += val
             it["liq"]  += L.get("liq", 0.0)
             it["pag"]  += L.get("pag", 0.0)
             it["conc"] += L.get("conc", 0.0)
@@ -1543,9 +1675,18 @@ def secao_historico_ncs(res, hist, data_str, periodo):
             if not it["obj"] and L.get("obj"): it["obj"] = L["obj"]
             if not it["emit"] and L.get("emit"): it["emit"] = L["emit"]
             if not it["emit_nome"] and L.get("emit_nome"): it["emit_nome"] = L["emit_nome"]
+            if L.get("nd_de"): it["nd_de"] = L.get("nd_de")
 
-            cel_key = (cod, L.get("acao"), L.get("pi"), L.get("nd"))
-            cel_recs.setdefault(cel_key, []).append((key, val, L.get("dia")))
+            if not is_det:
+                it["prov"] += prov_liq
+                val_inflow = prov_liq
+            else:
+                it["is_det"] = True
+                val_inflow = max(0.0, crd_val)
+
+            if val_inflow > 0.005:
+                cel_key = (cod, L.get("acao"), L.get("pi"), L.get("nd"))
+                cel_recs.setdefault(cel_key, []).append((key, val_inflow, L.get("dia")))
 
     # 2. Atribui o saldo restante em tela das células para as NCs (ordem cronológica decrescente)
     for cod, d in res.items():
@@ -1580,13 +1721,18 @@ def secao_historico_ncs(res, hist, data_str, periodo):
         dias = (hoje - dt).days if dt else None
         prov = it["prov"]
         cred = it["cred_calc"]
-        emp = max(0.0, prov - cred)
+        is_det = it.get("is_det", False)
+        emp = max(0.0, prov - cred) if not is_det else 0.0
 
         op_up = (it["op"] or "").upper()
         if "ANULA" in op_up or "CANCEL" in op_up or prov < -0.01:
             status = "Cancelada / Anulada"
             status_slug = "canc"
             faixa_saldo = "canc"
+        elif is_det:
+            status = "Detalhamento de ND"
+            status_slug = "detalhada"
+            faixa_saldo = "detalhada" if cred <= 0.01 else "saldo_pos"
         elif cred <= 0.01 and emp > 0:
             status = "Totalmente Executada"
             status_slug = "exec"
@@ -1628,6 +1774,8 @@ def secao_historico_ncs(res, hist, data_str, periodo):
             "fonte": it["fonte"],
             "nd": it["nd"],
             "nd_desc": it["nd_desc"],
+            "nd_de": it.get("nd_de", ""),
+            "is_det": is_det,
             "pi": it["pi"],
             "pi_desc": it["pi_nome"],
             "op": it["op"] or "Descentralização de Crédito",
@@ -1658,11 +1806,11 @@ def secao_historico_ncs(res, hist, data_str, periodo):
     # Ordenação padrão: mais recentes primeiro (Data Decrescente)
     hist_list.sort(key=lambda x: (x["dt"] or "", x["cred"]), reverse=True)
 
-    # Totais dos KPIs
+    # Totais dos KPIs sem duplicidades
     tot_distintas = len(set(x["nc"] for x in hist_list))
     tot_prov = sum(x["prov"] for x in hist_list)
-    tot_emp  = sum(x["emp"]  for x in hist_list)
     tot_cred = sum(x["cred"] for x in hist_list)
+    tot_emp  = max(0.0, tot_prov - tot_cred)
     p_emp = (tot_emp / tot_prov * 100) if tot_prov else 0.0
     p_cred = (tot_cred / tot_prov * 100) if tot_prov else 0.0
 
@@ -1719,6 +1867,7 @@ def secao_historico_ncs(res, hist, data_str, periodo):
         f'<option value="saldo_pos">🟢 Com Saldo (&gt; R$ 0)</option>'
         f'<option value="parcial">🟡 Parcialmente Executadas</option>'
         f'<option value="zerada">⚪ Executadas / Zeradas</option>'
+        f'<option value="detalhada">🔄 Detalhamentos de ND</option>'
         f'<option value="canc">🔴 Anuladas / Canceladas</option>'
         f'</select>'
         f'<button type="button" class="flt-limpa" onclick="bcmsLimpaFiltrosHistorico()" title="Limpar todos os filtros">✕ Limpar</button>'
@@ -1882,11 +2031,12 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     ug_rows = []
     for u in por_ug:
         sem_cor = "var(--ok, #10B981)" if u["pct_emp"] >= 80.0 else ("var(--gold, #F59E0B)" if u["pct_emp"] >= 60.0 else "var(--bad, #EF4444)")
+        sig_ug = u.get("sigla", u["cod"])
         ug_rows.append(
             f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsDetalheUG(\'{esc(u["cod"])}\')" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsDetalheUG(\'{esc(u["cod"])}\');}}" '
             f'title="Clique para ver o detalhamento completo de dotações, empenhos e NCs de {esc(u["nome"])}">'
-            f'<td class="col-ug"><b>{esc(u["cod"])}</b></td>'
+            f'<td class="col-ug"><b style="font-size:0.8125rem;color:var(--primary);">{esc(sig_ug)}</b><span style="display:block;font-size:0.6875rem;color:var(--ink-muted);font-weight:normal;">UG {esc(u["cod"])}</span></td>'
             f'<td class="col-nome"><b>{esc(u["nome"])}</b></td>'
             f'<td class="num col-moeda">{esc(brl(u["prov"]))}</td>'
             f'<td class="num col-moeda" style="font-weight:700;">{esc(brl(u["emp"]))}</td>'
@@ -1908,7 +2058,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         f'<div class="tbl-wrap tbl-scroll" style="margin-top:16px;">'
         f'<table class="tbl tbl-ugs" aria-label="Comparativo de UGs na Operação Catrimani">'
         f'<thead><tr>'
-        f'<th class="col-ug">UG</th><th class="col-nome">Unidade Gestora Executora</th><th class="num col-moeda">Recebido</th>'
+        f'<th class="col-ug">Unidade</th><th class="col-nome">Descrição da OM Executora</th><th class="num col-moeda">Recebido</th>'
         f'<th class="num col-moeda">Empenhado</th><th class="num col-moeda">Crédito Disponível</th>'
         f'<th class="num col-moeda">Liquidado</th><th class="num col-moeda">Pago</th><th class="num col-pct">% Execução</th>'
         f'</tr></thead>'
@@ -2003,11 +2153,12 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     <div class="eyebrow">Extrato Completo de Notas de Crédito da Operação Catrimani</div>
     <p class="sec-nota">Relação auditada das <b>{distinct_catr_ncs} Notas de Crédito distintas</b> ({len(linhas)} lançamentos de dotação) recebidas pelas 10 UGs executoras no âmbito da Operação Catrimani II. Utilize os filtros interativos de UG, Fonte e Saldo, pesquise em tempo real ou exporte a relação completa para Excel. <b>Clique em qualquer linha</b> para abrir a ficha cadastral no modal.</p>
     <div class="tbl-tools">
-      <input type="search" id="flt-catr-busca" class="tbl-search" placeholder="Buscar por NC, Favorecido, Objeto, ND ou PI…" oninput="bcmsFiltraCatrimani()">
+      <input type="search" id="flt-catr-busca" class="tbl-search" placeholder="Buscar por NC, Favorecido, Objeto, ND ou PI (multi-termos)…" oninput="bcmsFiltraCatrimani()">
+      <button type="button" class="flt-limpa" onclick="bcmsLimparFiltrosCatrimani()" title="Limpar todos os termos e filtros de pesquisa">↺ Limpar Filtros</button>
       <button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportCatrimaniExcel()" title="Baixar relatório completo da Operação Catrimani em planilha Excel formatada">
         <span class="btn-excel-ic">📊</span> Exportar Catrimani em Excel
       </button>
-      <span class="tbl-count" id="cnt-catr-ncs" aria-live="polite">Exibindo {min(25, len(linhas))} de {len(linhas)} Notas de Crédito</span>
+      <span class="tbl-count" id="cnt-catr-ncs" aria-live="polite">Exibindo {min(25, len(linhas))} de {len(linhas)} lançamentos ({distinct_catr_ncs} NCs distintas)</span>
     </div>
     <div class="tbl-filtros" role="group" aria-label="Filtros da Operação Catrimani">
       <span class="flt-lbl">Filtrar:</span>
@@ -2066,7 +2217,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     return frag
 
 
-def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_data=None):
+def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_data=None, omds_totais=None):
     hist_frag, histdata = secao_historico_ncs(res, hist, data_str, periodo)
 
     frags, CEL, NCD, DAY, TELA = [], {}, {}, {}, {}
@@ -2079,6 +2230,10 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
         frag, cel, ncd, day, tela = conteudo_unidade(res, hist_u, data_str, periodo, u, u_hist_items)
         frags.append(frag); CEL.update(cel); NCD.update(ncd); DAY.update(day); TELA.update(tela)
     
+    ranking_frag = secao_comparativo_omds(omds_totais, hist, data_str, periodo) if omds_totais else ""
+    if ranking_frag:
+        frags.append(ranking_frag)
+
     catrimani_frag = secao_operacao_catrimani(catrimani_data, data_str, periodo) if catrimani_data else ""
     if catrimani_frag:
         frags.append(catrimani_frag)
@@ -2094,6 +2249,12 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
         f'<img src="assets/logos/{u["logo"]}" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
         f'<span>{esc(u["sigla"])}</span></button>'
         for i, u in enumerate(UNIDADES))
+    omds += (
+        '<button class="omds omds-ranking" data-key="RANKING" aria-current="false" '
+        'title="Ranking & Benchmarking de Execução Orçamentária das 9 OMDS da Amazônia" onclick="trocaOMDS(this)">'
+        '<span class="hist-icon" aria-hidden="true" style="margin-right:6px;">🏆</span>'
+        '<span>Ranking OMDS</span></button>'
+    )
     omds += (
         '<button class="omds omds-catr" data-key="CATRIMANI" aria-current="false" '
         'title="Acompanhamento Orçamentário da Operação Catrimani II" onclick="trocaOMDS(this)">'
@@ -2117,6 +2278,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     teladata_json = json.dumps(TELA, ensure_ascii=False).replace("</", "<\\/")
     histdata_json = json.dumps(histdata, ensure_ascii=False).replace("</", "<\\/")
     catrimani_json = json.dumps(catrimani_data or {}, ensure_ascii=False).replace("</", "<\\/")
+    omds_json = json.dumps(omds_totais or {}, ensure_ascii=False).replace("</", "<\\/")
     return f"""<!doctype html><html lang="pt-BR" style="--accent:{u0['accent']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
@@ -2163,8 +2325,9 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
   <p class="rodape-brand">⚙ 6º Batalhão de Engenharia de Construção · Operação Catrimani II · Comando Militar da Amazônia</p>
   <p><b>Metodologia:</b> Crédito Disponível = Provisão Recebida − Provisão Concedida − Despesas Empenhadas (saldo líquido não empenhado no Tesouro Gerencial / SIAFI). O detalhe é o saldo real por célula orçamentária (Ação · PI · ND). A aba Catrimani consolida o acompanhamento inter-unidades de todas as UGs executoras da Ação 21EM.</p>
   <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ Dados com defasagem de aproximadamente 24 horas.</b> · Painel atualizado em {esc(ger)}</p>
+  <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 2º Sgt De Campos (BCMS / 6º BEC) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> Seção de Execução Orçamentária &amp; Fiscalização Administrativa (SIAFI / Tesouro Gerencial)</p>
 </footer>
-<script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};</script>
+<script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};</script>
 <script>{JS}</script>
 </body></html>"""
 
@@ -3039,9 +3202,9 @@ table.tbl, table.det, table.tbl-hist {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
-  min-width: 800px;
-  font-size: 0.8125rem;
-  line-height: 1.25;
+  min-width: 680px;
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
 table.tbl th, table.det th, table.tbl-hist th {
@@ -3050,12 +3213,12 @@ table.tbl th, table.det th, table.tbl-hist th {
   z-index: 10;
   background: var(--bg-subtle);
   color: var(--ink-muted);
-  font-size: 0.6875rem;
+  font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-align: left;
-  padding: 6px 10px;
+  padding: 4px 6px;
   white-space: nowrap;
   border-bottom: 2px solid var(--border);
   user-select: none;
@@ -3072,12 +3235,12 @@ table.tbl th .sort, table.det th .sort, table.tbl-hist th .sort {
 }
 
 table.tbl td, table.det td, table.tbl-hist td {
-  padding: 6px 10px;
+  padding: 4px 6px;
   border-bottom: 1px solid var(--border);
   color: var(--ink);
   vertical-align: middle;
-  font-size: 0.8125rem;
-  line-height: 1.25;
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
 table.tbl td.num, table.det td.num, table.tbl-hist td.num {
@@ -3085,11 +3248,37 @@ table.tbl td.num, table.det td.num, table.tbl-hist td.num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  font-size: 0.8125rem;
-  letter-spacing: -0.01em;
-  padding-left: 10px;
-  padding-right: 10px;
-  min-width: 110px;
+  font-size: 0.75rem;
+  letter-spacing: -0.015em;
+  padding-left: 6px;
+  padding-right: 6px;
+  min-width: 85px;
+}
+
+.kpi {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.tr-click, .cel-row, table.det tr:not(.det-hdr) {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.tr-click:hover, .cel-row:hover, table.det tr:not(.det-hdr):hover {
+  background: rgba(21, 128, 61, 0.08) !important;
+}
+td.num.anchor, td.col-moeda.anchor {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline dotted;
+}
+td.num.anchor:hover, td.col-moeda.anchor:hover {
+  color: #15803D;
+  background: rgba(21, 128, 61, 0.12);
 }
 
 table.tbl td.col-ug, table.tbl th.col-ug {
@@ -3684,6 +3873,26 @@ select option:checked, .flt option:checked, .hist-select option:checked {
   .hero-num { font-size: 2.2rem; }
   .kpis { grid-template-columns: 1fr; }
   .det td.mono2, .det th:first-child, .det td:first-child { position: sticky; left: 0; background: var(--bg-surface); }
+}
+
+/* Indicador e contenedor aprimorado para tabelas mobile */
+.tbl-scroll-hint {
+  display: none;
+}
+@media (max-width: 768px) {
+  .tbl-scroll-hint {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+    padding: 6px 12px;
+    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--border);
+  }
+}
 /* ==========================================================================
    ESTILOS PARA A ABA: HISTÓRICO DE NOTAS DE CRÉDITO E MODAL EXPANDIDO
    ========================================================================== */
@@ -3832,17 +4041,19 @@ select option:checked, .flt option:checked, .hist-select option:checked {
   font-weight: 700;
   white-space: nowrap;
 }
-.status-disp    { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
-.status-parcial { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
-.status-exec    { background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; }
-.status-canc    { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
-.status-zerada  { background: #F8FAFC; color: #64748B; border: 1px solid #E2E8F0; }
+.status-disp      { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+.status-parcial   { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+.status-exec      { background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; }
+.status-detalhada { background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; }
+.status-canc      { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
+.status-zerada    { background: #F8FAFC; color: #64748B; border: 1px solid #E2E8F0; }
 
-:root[data-theme="dark"] .status-disp    { background: #064E3B; color: #A7F3D0; border-color: #047857; }
-:root[data-theme="dark"] .status-parcial { background: #78350F; color: #FDE68A; border-color: #B45309; }
-:root[data-theme="dark"] .status-exec    { background: #1E293B; color: #94A3B8; border-color: #334155; }
-:root[data-theme="dark"] .status-canc    { background: #7F1D1D; color: #FECACA; border-color: #B91C1C; }
-:root[data-theme="dark"] .status-zerada  { background: #0F172A; color: #64748B; border-color: #1E293B; }
+:root[data-theme="dark"] .status-disp      { background: #064E3B; color: #A7F3D0; border-color: #047857; }
+:root[data-theme="dark"] .status-parcial   { background: #78350F; color: #FDE68A; border-color: #B45309; }
+:root[data-theme="dark"] .status-exec      { background: #1E293B; color: #94A3B8; border-color: #334155; }
+:root[data-theme="dark"] .status-detalhada { background: #1E3A8A; color: #BFDBFE; border-color: #2563EB; }
+:root[data-theme="dark"] .status-canc      { background: #7F1D1D; color: #FECACA; border-color: #B91C1C; }
+:root[data-theme="dark"] .status-zerada    { background: #0F172A; color: #64748B; border-color: #1E293B; }
 
 /* Paginação */
 .hist-pagination {
@@ -4382,6 +4593,14 @@ function trocaOMDS(btn){
     if(!CATR_INITIALIZED){
       bcmsInitCatrimani();
     }
+  } else if(key==='RANKING'){
+    document.documentElement.style.setProperty('--accent','#D97706');
+    var em=document.getElementById('emblema');if(em){em.src='assets/logos/12RM.png';em.alt='Brasão 12ª RM';}
+    if(esc)esc.textContent='12ª REGIÃO MILITAR · COMANDO MILITAR DA AMAZÔNIA';
+    var t=document.getElementById('uTitulo');if(t)t.textContent='Ranking & Benchmarking OMDS';
+    var n=document.getElementById('uNome');if(n)n.textContent='Visão Comparativa de Execução Orçamentária das 9 Organizações Militares';
+    var uu=document.getElementById('uUasg');if(uu)uu.textContent='18 UASGs (OGU + FEx) · Exercício 2026';
+    try{document.title='Ranking & Comparativo OMDS';}catch(e){}
   } else if(key==='HISTORICO'){
     document.documentElement.style.setProperty('--accent','#15803D');
     var em=document.getElementById('emblema');if(em){em.src='assets/logos/6BEC.png';em.alt='Brasão 6º BEC';}
@@ -4926,7 +5145,8 @@ function bcmsFiltraHistorico(){
     if(fFaixa){
       if(fFaixa === 'saldo_pos' && it.cred <= 0.01) return false;
       if(fFaixa === 'parcial' && (it.status_slug !== 'parcial')) return false;
-      if(fFaixa === 'zerada' && (it.cred > 0.01 || it.status_slug === 'canc')) return false;
+      if(fFaixa === 'zerada' && (it.cred > 0.01 || it.status_slug === 'canc' || it.status_slug === 'detalhada')) return false;
+      if(fFaixa === 'detalhada' && it.status_slug !== 'detalhada') return false;
       if(fFaixa === 'canc' && it.status_slug !== 'canc') return false;
     }
     if(q){
@@ -5869,6 +6089,167 @@ function bcmsExportUHistExcel(sfx, sigla){
 }
 
 
+
+/* ==========================================================================
+   MELHORIAS DE DETALHAMENTO & AUDITORIA MULTI-UG / OMDS / KPIS
+   ========================================================================== */
+
+function bcmsDetalheOMDS(key){
+  if(!key) return;
+  if(key === 'BEC6'){
+    trocaOMDSPorKey('BEC6');
+    return;
+  }
+  var u = (typeof OMDSDATA !== 'undefined' && OMDSDATA) ? OMDSDATA[key] : null;
+  if(!u){
+    if(typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.por_ug){
+      for(var i = 0; i < CATRDATA.por_ug.length; i++){
+        if(CATRDATA.por_ug[i].cod === key || CATRDATA.por_ug[i].nome.indexOf(key) !== -1){
+          bcmsDetalheUG(CATRDATA.por_ug[i].cod);
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  var prov = u.prov || 0;
+  var emp  = u.emp || 0;
+  var cred = u.cred || 0;
+  var liq  = u.liq || 0;
+  var pag  = u.pag || 0;
+  var pctEmp = prov > 0 ? (emp / prov * 100) : 0;
+  var pctLiq = emp > 0 ? (liq / emp * 100) : 0;
+  var pctPag = liq > 0 ? (pag / liq * 100) : 0;
+
+  var semCor = pctEmp >= 90 ? 'var(--ok, #10B981)' : (pctEmp >= 80 ? 'var(--gold, #F59E0B)' : 'var(--bad, #EF4444)');
+  var statusBadge = cred > 0.01 ?
+    '<span class="m-badge-status-lg status-ok">● SALDO DISPONÍVEL: ' + bcmsFmtBRL(cred) + '</span>' :
+    '<span class="m-badge-status-lg status-warn">● 100% EMPENHADO / ZERADO</span>';
+
+  var h = '';
+  h += '<div class="m-accent-bar" style="background:' + (u.accent || '#15803D') + ';"></div>';
+  h += '<div class="m-content-wrap">';
+  h += '  <div class="m-header-v2">';
+  h += '    <div class="m-header-meta-row">';
+  h += '      <span class="m-badge-op" style="background:' + (u.accent || '#15803D') + ';color:#fff;">🏛️ ORGANIZAÇÃO MILITAR · 12ª RM / CMA</span>';
+  h += '      ' + statusBadge;
+  h += '    </div>';
+  h += '    <div class="m-title-row">';
+  h += '      <div class="m-nc-code-block" style="display:flex;align-items:center;gap:12px;">';
+  h += '        <img src="assets/logos/' + (u.logo || '12RM.png') + '" alt="" style="width:40px;height:40px;object-fit:contain;" onerror="this.src=\'assets/logos/12RM.png\'">';
+  h += '        <div><h3 id="modal-title" style="margin:0;">' + bcmsEsc(u.sigla) + ' — ' + bcmsEsc(u.nome) + '</h3>';
+  h += '        <span style="font-size:0.8125rem;color:var(--ink-muted);">UASGs: ' + bcmsEsc(u.ogu) + ' (OGU) e ' + bcmsEsc(u.fex) + ' (FEx) · Exercício 2026</span></div>';
+  h += '      </div>';
+  h += '    </div>';
+  h += '  </div>';
+
+  h += '  <div class="m-fin-section">';
+  h += '    <div class="m-fin-grid">';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Provisão Recebida</span><span class="m-fin-val col-prov">' + bcmsFmtBRL(prov) + '</span><span class="m-fin-sub">Dotação consolidada</span></div>';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Despesas Empenhadas</span><span class="m-fin-val" style="color:var(--primary-600);">' + bcmsFmtBRL(emp) + '</span><span class="m-fin-sub">' + pctEmp.toFixed(1) + '% de execução</span></div>';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Crédito Disponível</span><span class="m-fin-val ' + (cred > 0.01 ? 'col-cred' : '') + '">' + bcmsFmtBRL(cred) + '</span><span class="m-fin-sub">' + (cred > 0.01 ? 'Saldo livre em tela' : '100% comprometido') + '</span></div>';
+  h += '      <div class="m-fin-card"><span class="m-fin-label">Liquidado / Pago</span><span class="m-fin-val" style="font-size:1.15rem;">' + bcmsFmtBRL(liq) + '</span><span class="m-fin-sub">Pago: ' + bcmsFmtBRL(pag) + ' (' + pctPag.toFixed(1) + '%)</span></div>';
+  h += '    </div>';
+
+  h += '    <div class="m-exec-pipeline" style="margin-top:16px;">';
+  h += '      <div class="m-pipeline-header"><span class="m-pipeline-title">Funil de Execução Orçamentária da OMDS</span><span class="m-pipeline-pct" style="color:' + semCor + ';">' + pctEmp.toFixed(1) + '% executado</span></div>';
+  h += '      <div class="m-pipeline-stages">';
+  h += '        <div class="m-stage"><div class="m-stage-head"><span>1. Dotação Recebida</span><b>100%</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:100%;background:var(--prov);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(prov) + '</span></div>';
+  h += '        <div class="m-stage"><div class="m-stage-head"><span>2. Empenhado</span><b>' + pctEmp.toFixed(1) + '%</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctEmp) + '%;background:var(--emp);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(emp) + '</span></div>';
+  h += '        <div class="m-stage"><div class="m-stage-head"><span>3. Liquidado</span><b>' + pctLiq.toFixed(1) + '% do emp.</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctLiq) + '%;background:var(--gold);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(liq) + '</span></div>';
+  h += '        <div class="m-stage"><div class="m-stage-head"><span>4. Pago</span><b>' + pctPag.toFixed(1) + '% do liq.</b></div><div class="m-stage-track"><div class="m-stage-fill" style="width:' + Math.min(100, pctPag) + '%;background:var(--pag);"></div></div><span class="m-stage-val">' + bcmsFmtBRL(pag) + '</span></div>';
+  h += '      </div>';
+  h += '    </div>';
+
+  h += '    <div style="margin-top:20px;display:flex;gap:12px;justify-content:flex-end;">';
+  h += '      <button type="button" class="btn-flt" onclick="bcmsIrParaCatrimaniUG(\'' + bcmsEsc(u.ogu) + '\')" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-weight:700;cursor:pointer;">🎖️ Ver Operações na Catrimani II ›</button>';
+  h += '    </div>';
+  h += '  </div>';
+  h += '</div>';
+
+  var mb = document.getElementById('modal-body');
+  if(mb) mb.innerHTML = h;
+  var m = document.getElementById('modal');
+  if(m){ m.classList.add('open'); m.setAttribute('aria-hidden', 'false'); }
+  var x = document.querySelector('.modal-x');
+  if(x) x.focus();
+}
+
+function bcmsIrParaCatrimaniUG(codUg){
+  var m = document.getElementById('modal');
+  if(m) m.classList.remove('open');
+  trocaOMDSPorKey('CATRIMANI');
+  setTimeout(function(){
+    var sel = document.getElementById('flt-catr-ug');
+    if(sel){ sel.value = String(codUg); bcmsFiltraCatrimani(); }
+  }, 150);
+}
+
+function bcmsModalKpi(tipo){
+  var titulo = '', sub = '', formula = '', corpo = '';
+  if(tipo === 'prov'){
+    titulo = 'Dotação / Provisão Recebida';
+    sub = 'Crédito orçamentário descentralizado pelos órgãos superiores (COTER, COLOG, EME)';
+    formula = 'Dotação Inicial + Provisões Recebidas − Provisões Concedidas = Dotação Líquida';
+    corpo = '<p>Representa a autorização orçamentária total transferida para a Unidade Gestora na LOA 2026. Este recurso torna-se apto para empenho imediato conforme os Planos de Aplicação e cronogramas de desembolso aprovados.</p>';
+  } else if(tipo === 'emp'){
+    titulo = 'Despesas Empenhadas';
+    sub = 'Primeiro estágio da execução da despesa pública (Art. 58 da Lei nº 4.320/1964)';
+    formula = 'Dotação Empenhada = Compromisso formal de pagamento criado pela Nota de Empenho (NE)';
+    corpo = '<p>O empenho reserva o crédito orçamentário específico para contratação ou aquisição de bens e serviços. Garante que o crédito não seja recolhido por expiração de prazo (como as 11 NCs com vencimento em 30 de setembro).</p>';
+  } else if(tipo === 'cred'){
+    titulo = 'Crédito Disponível Líquido';
+    sub = 'Saldo livre em tela para emissão de novos empenhos ou contratos';
+    formula = 'Crédito Disponível = Provisão Recebida − Empenhado (Saldo Livre em Tela)';
+    corpo = '<p>Valor residual exato disponível na UG para emissão de novas Notas de Empenho (NE). Créditos com prazo até 30 de setembro devem ser empenhados com prioridade absoluta para evitar devolução compulsória ao COTER.</p>';
+  } else if(tipo === 'liq'){
+    titulo = 'Despesas Liquidadas';
+    sub = 'Segundo estágio da execução da despesa (Art. 63 da Lei nº 4.320/1964)';
+    formula = 'Liquidação = Atesto do bem entregue ou serviço prestado via Termo de Recebimento';
+    corpo = '<p>Comprova o cumprimento integral da obrigação pelo fornecedor contratado, mediante nota fiscal e atesto de conformidade técnica pelos fiscais do contrato. Precede a ordem bancária de pagamento.</p>';
+  } else if(tipo === 'pag'){
+    titulo = 'Despesas Pagas';
+    sub = 'Terceiro e último estágio da despesa pública (Art. 64 da Lei nº 4.320/1964)';
+    formula = 'Pagamento = Ordem Bancária (OB) transmitida à Conta Única do Tesouro Nacional';
+    corpo = '<p>Conclusão financeira da despesa pública mediante crédito na conta corrente bancária do fornecedor. Quita a dívida do Estado e baixa a responsabilidade da administração militar.</p>';
+  }
+
+  var h = '';
+  h += '<div class="m-accent-bar" style="background:var(--primary);"></div>';
+  h += '<div class="m-content-wrap">';
+  h += '  <div class="m-header-v2">';
+  h += '    <div class="m-header-meta-row"><span class="m-badge-op">ℹ️ REGRA ORÇAMENTÁRIA & CONTABILIDADE SIAFI</span></div>';
+  h += '    <h3 id="modal-title">' + titulo + '</h3>';
+  h += '    <p class="m-sub" style="margin-top:4px;">' + sub + '</p>';
+  h += '  </div>';
+  h += '  <div style="background:var(--bg-subtle);padding:14px;border-radius:8px;border:1px solid var(--border);margin:16px 0;">';
+  h += '    <span style="font-size:0.75rem;font-weight:700;color:var(--ink-muted);text-transform:uppercase;letter-spacing:0.05em;">Equação Contábil / Regra de Ouro</span>';
+  h += '    <div style="font-family:var(--mono);font-size:0.95rem;font-weight:700;color:var(--primary);margin-top:4px;">' + formula + '</div>';
+  h += '  </div>';
+  h += '  <div style="font-size:0.9rem;line-height:1.6;color:var(--ink);">' + corpo + '</div>';
+  h += '  <div style="margin-top:20px;text-align:right;">';
+  h += '    <button type="button" class="btn-flt" onclick="document.getElementById(\'modal\').classList.remove(\'open\')" style="background:var(--primary);color:#fff;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer;">Entendido</button>';
+  h += '  </div>';
+  h += '</div>';
+
+  var mb = document.getElementById('modal-body');
+  if(mb) mb.innerHTML = h;
+  var m = document.getElementById('modal');
+  if(m){ m.classList.add('open'); m.setAttribute('aria-hidden', 'false'); }
+  var x = document.querySelector('.modal-x');
+  if(x) x.focus();
+}
+
+function bcmsLimparFiltrosCatrimani(){
+  var inBusca = document.getElementById('flt-catr-busca'); if(inBusca) inBusca.value = '';
+  var inUg = document.getElementById('flt-catr-ug'); if(inUg) inUg.value = '';
+  var inFonte = document.getElementById('flt-catr-fonte'); if(inFonte) inFonte.value = '';
+  var inSaldo = document.getElementById('flt-catr-saldo'); if(inSaldo) inSaldo.value = '';
+  bcmsFiltraCatrimani();
+  bcmsToast('Filtros da Operação Catrimani redefinidos');
+}
+
 /* ==========================================================================
    MÓDULO OPERAÇÃO CATRIMANI II (Multi-UGs & Ação 21EM)
    ========================================================================== */
@@ -5893,6 +6274,8 @@ function bcmsFiltraCatrimani(){
   var fsaldo = (document.getElementById('flt-catr-saldo') ? document.getElementById('flt-catr-saldo').value.trim() : '');
   var q = (document.getElementById('flt-catr-busca') ? document.getElementById('flt-catr-busca').value.toLowerCase().trim() : '');
 
+  var tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+
   CATR_FILTERED = CATRDATA.linhas.filter(function(it){
     if(fug && it.ug !== fug) return false;
     if(ffonte && String(it.ug).indexOf(ffonte) !== 0) return false;
@@ -5900,16 +6283,23 @@ function bcmsFiltraCatrimani(){
       if(fsaldo === 'com_saldo' && it.cred <= 0.01) return false;
       if(fsaldo === 'zerada' && it.cred > 0.01) return false;
     }
-    if(q){
-      var match = (it.nc && it.nc.toLowerCase().indexOf(q) > -1) ||
-                  (it.obj && it.obj.toLowerCase().indexOf(q) > -1) ||
-                  (it.ug && it.ug.toLowerCase().indexOf(q) > -1) ||
-                  (it.ug_nome && it.ug_nome.toLowerCase().indexOf(q) > -1) ||
-                  (it.pi && it.pi.toLowerCase().indexOf(q) > -1) ||
-                  (it.pi_nome && it.pi_nome.toLowerCase().indexOf(q) > -1) ||
-                  (it.nd && it.nd.toLowerCase().indexOf(q) > -1) ||
-                  (it.nd_desc && it.nd_desc.toLowerCase().indexOf(q) > -1);
-      if(!match) return false;
+    if(tokens.length > 0){
+      var rowText = (
+        (it.nc || '') + ' ' +
+        (it.ug || '') + ' ' +
+        (it.ug_nome || '') + ' ' +
+        (it.emit || '') + ' ' +
+        (it.emit_nome || '') + ' ' +
+        (it.acao || '') + ' ' +
+        (it.pi || '') + ' ' +
+        (it.pi_nome || '') + ' ' +
+        (it.nd || '') + ' ' +
+        (it.nd_desc || '') + ' ' +
+        (it.obj || '')
+      ).toLowerCase();
+      for(var k=0; k<tokens.length; k++){
+        if(rowText.indexOf(tokens[k]) === -1) return false;
+      }
     }
     return true;
   });
@@ -5965,13 +6355,39 @@ function bcmsRenderCatrimani(pag){
   tbody.innerHTML = h;
 
   var totalGlobal = (typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas) ? CATRDATA.linhas.length : total;
+
+  /* Contagem de NCs distintas no conjunto filtrado */
+  var distinctNcs = {};
+  var sumProv = 0, sumEmp = 0, sumCred = 0;
+  if(CATR_FILTERED){
+    CATR_FILTERED.forEach(function(it){
+      if(it.nc) distinctNcs[it.nc] = true;
+      sumProv += (it.prov || 0);
+      sumEmp  += (it.emp || 0);
+      sumCred += (it.cred || 0);
+    });
+  }
+  var numDistinct = Object.keys(distinctNcs).length;
+
   var cnt = document.getElementById('cnt-catr-ncs');
   if(cnt){
     if(total === totalGlobal){
-      cnt.textContent = 'Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ' Notas de Crédito';
+      cnt.textContent = 'Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0') + ' de ' + total + ' lançamentos (' + numDistinct + ' NCs distintas)';
     } else {
-      cnt.textContent = 'Filtrado: ' + total + ' de ' + totalGlobal + ' NCs (' + (total > 0 ? 'Exibindo ' + (start + 1) + '–' + end : 'Nenhum item') + ')';
+      cnt.textContent = 'Filtrado: ' + total + ' de ' + totalGlobal + ' itens (' + numDistinct + ' NCs distintas) · Exibindo ' + (total > 0 ? (start + 1) + '–' + end : '0');
     }
+  }
+
+  /* Recalcular dinamicamente o rodapé da tabela */
+  var tfoot = document.querySelector('#tab-catrimani-ncs tfoot');
+  if(tfoot){
+    tfoot.innerHTML = '<tr>' +
+      '<td colspan="6"><b>' + (total === totalGlobal ? 'TOTAL CONSOLIDADO' : 'SUBTOTAL FILTRADO') + ' · ' + numDistinct + ' NOTAS DE CRÉDITO (' + total + ' ITENS)</b></td>' +
+      '<td class="num"><b>' + bcmsFmtBRL(sumProv) + '</b></td>' +
+      '<td class="num"><b>' + bcmsFmtBRL(sumEmp) + '</b></td>' +
+      '<td class="num anchor"><b>' + bcmsFmtBRL(sumCred) + '</b></td>' +
+      '<td>—</td>' +
+      '</tr>';
   }
 
   var ptxt = document.getElementById('pag-catr-txt');
@@ -6243,19 +6659,21 @@ function bcmsExportCatrimaniExcel(){
 # ---------------- main ----------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--local", help="caminho de um xlsx local (teste)")
+    ap.add_argument("--local", help="caminho de um xlsx ou csv local (teste)")
+    ap.add_argument("--url", help="URL do CSV ou planilha publicada no Google Sheets")
     ap.add_argument("--date", help="data do snapshot YYYY-MM-DD (default: hoje)")
     ap.add_argument("--file-id", default=(os.environ.get("DRIVE_FILE_ID") or DEFAULT_FILE_ID))
     args = ap.parse_args()
 
     data_str = args.date or datetime.date.today().isoformat()
-    path = args.local if args.local else baixar(args.file_id)
+    target = args.local or args.url or os.environ.get("SHEETS_CSV_URL") or args.file_id
+    path = args.local if (args.local and os.path.exists(args.local)) else baixar(target)
     print("Fonte:", path)
-    res, periodo, alertas, catrimani_data = etl(path)
+    res, periodo, alertas, catrimani_data, omds_totais = etl(path)
     for a in alertas:
         print("[ALERTA]", a)
     hist = atualizar_historico(res, data_str)
-    html_out = montar_pagina(res, hist, data_str, periodo, alertas, catrimani_data)
+    html_out = montar_pagina(res, hist, data_str, periodo, alertas, catrimani_data, omds_totais)
 
     os.makedirs(SITE, exist_ok=True)
     os.makedirs(os.path.join(SITE, "data"), exist_ok=True)

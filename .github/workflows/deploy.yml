@@ -39,7 +39,21 @@ jobs:
       - name: Gerar o dashboard
         env:
           DRIVE_FILE_ID: ${{ secrets.DRIVE_FILE_ID }}
+          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}
         run: python gerar_dashboard.py
+
+      - name: Enviar Relatório Executivo Diário (WhatsApp Format)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER || secrets.EMAIL_REMETENTE }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD || secrets.EMAIL_SENHA }}
+          EMAIL_REMETENTE: ${{ secrets.EMAIL_REMETENTE || secrets.SMTP_USER }}
+          EMAIL_SENHA: ${{ secrets.EMAIL_SENHA || secrets.SMTP_PASSWORD }}
+          EMAIL_DESTINO: ${{ secrets.EMAIL_DESTINO || 'marcelofsaldanha@gmail.com' }}
+          EMAIL_BCC: ${{ secrets.EMAIL_BCC }}
+          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}
+        run: python relatorio_email_6bec.py
 
       - name: Salvar histórico (commit se mudou)
         continue-on-error: true

@@ -4,3 +4,5 @@ __pycache__/
 *.tmp
 .DS_Store
 Thumbs.db
+relatorio_catrimani_dashboard.html
+relatorio_ultimas_30_ncs_catrimani.pdf
