@@ -4881,11 +4881,56 @@ function bcmsNC(row){
     }
   }
   var neg=d.val<0;
-  var h='<h3 id="modal-title">NC '+bcmsEsc(d.nc)+'</h3>';
-  h+='<p class="m-sub">'+bcmsEsc((d.u?d.u+' · ':'')+'Ação '+d.acao+' · PI '+d.pi+' · ND '+d.nd+(d.ndn?' — '+d.ndn:''))+'</p>';
-  h+='<div class="m-kpis"><span>Data<b>'+bcmsEsc(d.dia||'—')+'</b></span><span>Operação<b class="op">'+bcmsEsc(d.op||'—')+'</b></span><span class="'+(neg?'':'ok')+'">Valor<b class="'+(neg?'neg':'')+'">'+bcmsBRL(d.val)+'</b></span></div>';
-  h+='<div class="m-ncs-h">Descrição completa do lançamento</div>';
-  h+='<div class="m-nc"><div class="m-nc-desc">'+bcmsEsc(d.obj||'(sem descrição)')+'</div></div>';
+  var h='<div class="m-accent-bar" style="background:linear-gradient(90deg, #3B82F6 0%, #2563EB 50%, #10B981 100%);"></div>';
+  h+='<div class="m-content-wrap">';
+  h+='<div class="m-header-v2">';
+  h+='  <div class="m-header-meta-row">';
+  h+='    <span class="m-badge-op">📋 NOTA DE CRÉDITO AVULSA</span>';
+  h+='    <span class="m-badge-status-lg '+(neg?'status-warn':'status-ok')+'">'+(neg?'DEDUÇÃO / ESTORNO':'CRÉDITO DISPONIBILIZADO')+'</span>';
+  h+='  </div>';
+  h+='  <div class="m-title-row" style="padding-right:48px;">';
+  h+='    <div class="m-nc-code-block">';
+  h+='      <h3 id="modal-title">NC '+bcmsEsc(d.nc)+'</h3>';
+  h+='      <div class="m-sub-meta">';
+  h+='        <span class="m-meta-chip">UASG <b>'+bcmsEsc(d.u||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">Ação <b>'+bcmsEsc(d.acao||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">PI <b>'+bcmsEsc(d.pi||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">ND <b>'+bcmsEsc(d.nd||'—')+'</b></span>';
+  h+='      </div>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+  h+='<div class="m-fin-section">';
+  h+='  <div class="m-fin-grid">';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Data de Emissão</span>';
+  h+='      <span class="m-fin-val">'+bcmsEsc(d.dia||'—')+'</span>';
+  h+='      <span class="m-fin-sub">Registro SIAFI</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Tipo de Operação</span>';
+  h+='      <span class="m-fin-val col-prov">'+bcmsEsc(d.op||'—')+'</span>';
+  h+='      <span class="m-fin-sub">Classificação Contábil</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card hero-saldo">';
+  h+='      <span class="m-fin-label">Valor do Lançamento</span>';
+  h+='      <span class="m-fin-val-hero '+(neg?'col-emp':'')+'">'+bcmsBRL(d.val)+'</span>';
+  h+='      <span class="m-fin-tag-hero">'+(neg?'⚠️ Débito / Redução':'✓ Crédito Integrado')+'</span>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+  h+='<div class="m-justif-card" style="margin-bottom:20px;">';
+  h+='  <div class="m-justif-header">';
+  h+='    <span class="m-justif-title">📝 Descrição Completa do Lançamento</span>';
+  h+='    <button type="button" class="m-btn-pill" data-copy="'+bcmsEsc(d.obj||'')+'" onclick="bcmsCopiarTexto(this)">📋 Copiar</button>';
+  h+='  </div>';
+  h+='  <div class="m-justif-body">'+bcmsEsc(d.obj||'(sem descrição)')+'</div>';
+  h+='</div>';
+  h+='<div class="m-footer-actions-v2">';
+  h+='  <span class="m-footer-meta">SIAFI / Tesouro Gerencial · Dados Oficiais</span>';
+  h+='  <button type="button" class="m-btn-pill primary" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
+  h+='</div>';
+  h+='</div>';
   document.getElementById('modal-body').innerHTML=h;
   var m=document.getElementById('modal');
   m.classList.add('open');
@@ -5118,32 +5163,59 @@ function bcmsTelaAba(aba){
   var c=CELDATA[t.cid]||{};
   var fonte=t.u==='OGU'?'OGU (Orçamento Geral da União)':(t.u==='FEx'?'FEx (Fundo do Exército)':(t.u||'—'));
   var ncCurta=(String(t.nc).match(/NC(\d+)$/)||[])[1];
-  var h='<h3 id="modal-title">'+(ncCurta?'NC '+bcmsEsc(ncCurta):bcmsEsc(t.nc))+'</h3>';
-  h+='<p class="m-sub">'+bcmsEsc(t.uasg+' · '+fonte+' · Ação '+t.acao+' · PI '+t.pi+' · ND '+t.nd+(t.ndnome?' — '+t.ndnome:''))+'</p>';
-  /* etapas */
+  var h='<div class="m-accent-bar" style="background:linear-gradient(90deg, #10B981 0%, #059669 35%, #2563EB 75%, #8B5CF6 100%);"></div>';
+  h+='<div class="m-content-wrap">';
+  h+='<div class="m-header-v2">';
+  h+='  <div class="m-header-meta-row">';
+  h+='    <span class="m-badge-op">🟢 SALDO EM TELA · CRÉDITO DISPONÍVEL</span>';
+  h+='    <span class="m-badge-status-lg status-ok">VALOR DISPONÍVEL: '+bcmsBRL(t.v)+'</span>';
+  h+='  </div>';
+  h+='  <div class="m-title-row" style="padding-right:48px;">';
+  h+='    <div class="m-nc-code-block">';
+  h+='      <h3 id="modal-title">'+(ncCurta?'NC '+bcmsEsc(ncCurta):bcmsEsc(t.nc))+'</h3>';
+  h+='      <div class="m-sub-meta">';
+  h+='        <span class="m-meta-chip">🏛️ UASG <b>'+bcmsEsc(t.uasg||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">Fonte <b>'+bcmsEsc(fonte)+'</b></span>';
+  h+='        <span class="m-meta-chip">Ação <b>'+bcmsEsc(t.acao||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">PI <b>'+bcmsEsc(t.pi||'—')+'</b></span>';
+  h+='        <span class="m-meta-chip">ND <b>'+bcmsEsc(t.nd+(t.ndnome?' — '+t.ndnome:''))+'</b></span>';
+  h+='      </div>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  /* etapas tablist */
   var abas=[['tela','🟢 Em tela'],['hist','📜 Histórico do PI'],['liq','🧾 Liquidação'],['pag','💰 Pagamento']];
-  h+='<div class="m-etapas" role="tablist">';
+  h+='<div class="m-etapas" role="tablist" style="margin-bottom:18px;">';
   abas.forEach(function(a){
     h+='<button class="m-etapa'+(a[0]===aba?' on':'')+'" role="tab" aria-selected="'+(a[0]===aba)+'" onclick="bcmsTelaAba(\''+a[0]+'\')">'+a[1]+'</button>';
   });
   h+='</div><div class="m-etapa-body">';
   if(aba==='tela'){
     var idade=(t.dias===null||t.dias===undefined)?'—':(t.dias+' dia'+(t.dias===1?'':'s'));
-    h+='<div class="m-tela-card"><span class="m-tela-lbl">Disponível em tela nesta NC</span>'
+    h+='<div class="m-tela-card" style="margin-bottom:16px;"><span class="m-tela-lbl">Disponível em tela nesta NC</span>'
       +'<b class="m-tela-val">'+bcmsBRL(t.v)+'</b>'
       +'<span class="m-tela-meta">Recebido em '+bcmsEsc(t.dia||'—')+' · há '+idade+(t.emit?' · Emitente '+bcmsEsc(t.emit):'')+'</span></div>';
     if(t.org){
-      h+='<div class="m-org"><div class="m-org-h">↪ Crédito recebido por <b>mudança de ND</b>'
+      h+='<div class="m-org" style="margin-bottom:16px;"><div class="m-org-h">↪ Crédito recebido por <b>mudança de ND</b>'
         +(t.nd_de?' (de '+bcmsEsc(t.nd_de)+' para '+bcmsEsc(t.nd)+')':'')+'</div>'
         +'<div class="m-org-b"><span>Objeto original — NC '+bcmsEsc(t.org.nc)
         +(t.org.dia?' de '+bcmsEsc(t.org.dia):'')+(t.org.emit?' · emitente '+bcmsEsc(t.org.emit):'')+'</span>'
         +'<p>'+bcmsEsc(t.org.obj||'—')+'</p></div></div>';
     }
-    h+='<div class="m-ncs-h">Descrição desta NC</div><div class="m-nc-desc big">'+bcmsEsc(t.obj||'—')+'</div>';
-    if(t.op) h+='<p class="m-formula">Operação: '+bcmsEsc(t.op)+'</p>';
+    h+='<div class="m-justif-card" style="margin-bottom:16px;">'
+      +'  <div class="m-justif-header"><span class="m-justif-title">📝 Descrição desta NC</span>'
+      +'  <button type="button" class="m-btn-pill" data-copy="'+bcmsEsc(t.obj||'')+'" onclick="bcmsCopiarTexto(this)">📋 Copiar</button></div>'
+      +'  <div class="m-justif-body">'+bcmsEsc(t.obj||'—')+'</div>'
+      +'</div>';
+    if(t.op) h+='<p class="m-formula" style="margin-bottom:12px;">Operação contábil: '+bcmsEsc(t.op)+'</p>';
   } else if(aba==='hist'){
-    h+='<p class="m-formula">Todas as movimentações da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — recebimentos, detalhamentos, mudanças de ND e anulações.</p>';
-    h+='<div class="m-kpis"><span>Recebido (líq)<b>'+bcmsBRL(c.r||0)+'</b></span><span>Empenhado<b>'+bcmsBRL(c.e||0)+'</b></span><span class="ok">Disponível<b>'+bcmsBRL(c.d||0)+'</b></span></div>';
+    h+='<p class="m-formula" style="margin-bottom:14px;">Todas as movimentações da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — recebimentos, detalhamentos, mudanças de ND e anulações.</p>';
+    h+='<div class="m-fin-section" style="margin-bottom:16px;"><div class="m-fin-grid">'
+      +'<div class="m-fin-card"><span class="m-fin-label">Recebido (Líq)</span><span class="m-fin-val col-prov">'+bcmsBRL(c.r||0)+'</span></div>'
+      +'<div class="m-fin-card"><span class="m-fin-label">Empenhado</span><span class="m-fin-val col-emp">'+bcmsBRL(c.e||0)+'</span></div>'
+      +'<div class="m-fin-card hero-saldo"><span class="m-fin-label">Disponível em Tela</span><span class="m-fin-val-hero">'+bcmsBRL(c.d||0)+'</span></div>'
+      +'</div></div>';
     var itens='';
     (c.ncs||[]).forEach(function(n){
       if(!n[0])return;var neg=n[2]<0;var meta=[];
@@ -5151,24 +5223,39 @@ function bcmsTelaAba(aba){
       if(n[1])meta.push(bcmsEsc(n[1]));
       if(n[5])meta.push('em '+bcmsEsc(n[5]));
       var ehEsta=(n[0]===t.nc);
-      itens+='<div class="m-nc'+(ehEsta?' m-nc-esta':'')+'"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+(ehEsta?' <i class="m-nc-tag">esta NC</i>':'')+'</span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[2])+'</span></div>';
+      itens+='<div class="m-nc'+(ehEsta?' m-nc-esta':'')+'" style="margin-bottom:8px;"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+(ehEsta?' <i class="m-nc-tag">esta NC</i>':'')+'</span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[2])+'</span></div>';
       if(meta.length)itens+='<div class="m-nc-op">'+meta.join(' · ')+'</div>';
       if(n[3])itens+='<div class="m-nc-desc">'+bcmsEsc(n[3])+'</div>';
       itens+='</div>';
     });
-    h+='<div class="m-ncs">'+(itens||'<p class="vazio">Sem movimentações.</p>')+'</div>';
+    h+='<div class="m-ncs">'+(itens||'<p class="vazio">Sem movimentações cadastradas.</p>')+'</div>';
   } else if(aba==='liq'){
     var emp=c.e||0,liq=c.l||0;
-    h+='<div class="m-kpis"><span>Empenhado<b>'+bcmsBRL(emp)+'</b></span><span class="ok">Liquidado<b>'+bcmsBRL(liq)+'</b></span><span>A liquidar<b>'+bcmsBRL(Math.max(0,emp-liq))+'</b></span></div>';
+    var pctL=emp>0?Math.min(100,liq/emp*100):0;
+    h+='<div class="m-fin-section" style="margin-bottom:16px;"><div class="m-fin-grid">'
+      +'<div class="m-fin-card"><span class="m-fin-label">Empenhado</span><span class="m-fin-val col-emp">'+bcmsBRL(emp)+'</span></div>'
+      +'<div class="m-fin-card"><span class="m-fin-label">Liquidado</span><span class="m-fin-val col-prov">'+bcmsBRL(liq)+'</span></div>'
+      +'<div class="m-fin-card"><span class="m-fin-label">A Liquidar</span><span class="m-fin-val">'+bcmsBRL(Math.max(0,emp-liq))+'</span></div>'
+      +'</div></div>';
     h+=bcmsBarra(liq,emp,'Liquidado sobre o empenhado');
-    h+='<p class="m-formula">Liquidação é a etapa em que a despesa é atestada (bem/serviço entregue). Valores da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — o SIAFI não segrega liquidação por NC individual.</p>';
+    h+='<p class="m-formula" style="margin-top:12px;">Liquidação é a etapa em que a despesa é atestada (bem/serviço entregue). Valores da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — o SIAFI não segrega liquidação por NC individual.</p>';
   } else {
     var liq2=c.l||0,pag=c.p||0;
-    h+='<div class="m-kpis"><span>Liquidado<b>'+bcmsBRL(liq2)+'</b></span><span class="ok">Pago<b>'+bcmsBRL(pag)+'</b></span><span>A pagar<b>'+bcmsBRL(Math.max(0,liq2-pag))+'</b></span></div>';
+    var pctP=liq2>0?Math.min(100,pag/liq2*100):0;
+    h+='<div class="m-fin-section" style="margin-bottom:16px;"><div class="m-fin-grid">'
+      +'<div class="m-fin-card"><span class="m-fin-label">Liquidado</span><span class="m-fin-val col-prov">'+bcmsBRL(liq2)+'</span></div>'
+      +'<div class="m-fin-card"><span class="m-fin-label">Pago</span><span class="m-fin-val" style="color:#10B981;">'+bcmsBRL(pag)+'</span></div>'
+      +'<div class="m-fin-card"><span class="m-fin-label">A Pagar</span><span class="m-fin-val">'+bcmsBRL(Math.max(0,liq2-pag))+'</span></div>'
+      +'</div></div>';
     h+=bcmsBarra(pag,liq2,'Pago sobre o liquidado');
-    h+='<p class="m-formula">Pagamento é a quitação efetiva da despesa liquidada. Valores da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — o SIAFI não segrega pagamento por NC individual.</p>';
+    h+='<p class="m-formula" style="margin-top:12px;">Pagamento é a quitação efetiva da despesa liquidada. Valores da célula <b>'+bcmsEsc(t.acao+' · PI '+t.pi+' · ND '+t.nd)+'</b> — o SIAFI não segrega pagamento por NC individual.</p>';
   }
+  h+='</div>'; // close m-etapa-body
+  h+='<div class="m-footer-actions-v2" style="margin-top:20px;">';
+  h+='  <span class="m-footer-meta">SIAFI / Tesouro Gerencial · Detalhamento em Tela</span>';
+  h+='  <button type="button" class="m-btn-pill primary" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
   h+='</div>';
+  h+='</div>'; // close m-content-wrap
   document.getElementById('modal-body').innerHTML=h;
 }
 function bcmsBarra(v,total,rot){
@@ -5179,17 +5266,91 @@ function bcmsBarra(v,total,rot){
 
 function bcmsCel(row){
   var d=CELDATA[row.getAttribute('data-cel')];if(!d)return;
-  var h='<h3 id="modal-title">'+bcmsEsc(d.t)+'</h3>';
-  var fonte=d.u==='OGU'?'OGU (Orçamento Geral da União)':(d.u==='FEx'?'FEx (Fundo do Exército)':(d.u||'—'));
-  h+='<div class="m-ficha">'
-    +'<span>UASG (Executora)<b>'+bcmsEsc(d.uasg||'—')+'</b></span>'
-    +'<span>Fonte<b>'+bcmsEsc(fonte)+'</b></span>'
-    +'<span>Ação Governo<b>'+bcmsEsc(d.acao||'—')+'</b></span>'
-    +'<span class="wide">PI (Plano Interno)<b>'+bcmsEsc(d.pi||'—')+(d.pinome?' — '+bcmsEsc(d.pinome):'')+'</b></span>'
-    +'<span class="wide">ND (Natureza de Despesa)<b>'+bcmsEsc(d.nd||'—')+(d.ndnome?' — '+bcmsEsc(d.ndnome):'')+'</b></span>'
-    +'</div>';
-  h+='<div class="m-kpis"><span>Recebido (líq)<b>'+bcmsBRL(d.r)+'</b></span><span>Empenhado<b>'+bcmsBRL(d.e)+'</b></span><span>Liquidado<b>'+bcmsBRL(d.l||0)+'</b></span><span>Pago<b>'+bcmsBRL(d.p||0)+'</b></span><span class="ok">Crédito Disponível<b>'+bcmsBRL(d.d)+'</b></span></div>';
-  h+='<p class="m-formula">Recebido (líq) − Empenhado = Crédito Disponível · Empenhado ≥ Liquidado ≥ Pago</p>';
+  var fonte=(d.u==='OGU'||d.u==='160')?'160 · OGU (Orçamento Geral da União)':((d.u==='FEx'||d.u==='167')?'167 · FEx (Fundo do Exército)':(d.u||'—'));
+  var pctEmp = d.r > 0 ? (d.e / d.r * 100) : 0;
+  var pctLiq = d.e > 0 ? ((d.l||0) / d.e * 100) : 0;
+  var pctPag = (d.l||0) > 0 ? ((d.p||0) / (d.l||0) * 100) : 0;
+  var statusBadge = d.d > 0.01 ?
+    '<span class="m-badge-status-lg status-ok">● SALDO DISPONÍVEL: ' + bcmsBRL(d.d) + '</span>' :
+    '<span class="m-badge-status-lg status-warn">● 100% EMPENHADO / ZERADO</span>';
+
+  var h='<div class="m-accent-bar" style="background:linear-gradient(90deg, #10B981 0%, #059669 35%, #2563EB 75%, #8B5CF6 100%);"></div>';
+  h+='<div class="m-content-wrap">';
+  h+='<div class="m-header-v2">';
+  h+='  <div class="m-header-meta-row">';
+  h+='    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+  h+='      <span class="m-badge-op">🏛️ CÉLULA ORÇAMENTÁRIA · UASG ' + bcmsEsc(d.uasg||'160069') + '</span>';
+  h+='      <span class="m-badge-op" style="background:rgba(59,130,246,0.12);color:#60A5FA;border-color:rgba(59,130,246,0.3);">' + bcmsEsc(fonte) + '</span>';
+  h+='    </div>';
+  h+='    ' + statusBadge;
+  h+='  </div>';
+  h+='  <div class="m-title-row" style="padding-right:48px;">';
+  h+='    <div class="m-nc-code-block">';
+  h+='      <h3 id="modal-title">' + bcmsEsc(d.t) + '</h3>';
+  h+='      <div class="m-sub-meta">';
+  h+='        <span class="m-meta-chip">🏷️ Ação <b>' + bcmsEsc(d.acao||'—') + '</b></span>';
+  h+='        <span class="m-meta-chip">📁 PI <b>' + bcmsEsc(d.pi||'—') + '</b></span>';
+  h+='        <span class="m-meta-chip">📊 ND <b>' + bcmsEsc(d.nd||'—') + '</b></span>';
+  h+='      </div>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  h+='<div class="m-fin-section">';
+  h+='  <div class="m-fin-grid">';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Valor Recebido (Líq)</span>';
+  h+='      <span class="m-fin-val col-prov">' + bcmsBRL(d.r) + '</span>';
+  h+='      <span class="m-fin-sub">Dotação autorizada</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Empenhado</span>';
+  h+='      <span class="m-fin-val col-emp">' + bcmsBRL(d.e) + '</span>';
+  h+='      <span class="m-fin-sub">' + pctEmp.toFixed(1) + '% consumido</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Liquidado / Pago</span>';
+  h+='      <span class="m-fin-val">' + bcmsBRL(d.l||0) + '</span>';
+  h+='      <span class="m-fin-sub">Pago: ' + bcmsBRL(d.p||0) + '</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card hero-saldo">';
+  h+='      <span class="m-fin-label">Crédito Disponível Líquido</span>';
+  h+='      <span class="m-fin-val-hero">' + bcmsBRL(d.d) + '</span>';
+  h+='      <span class="m-fin-tag-hero">⚡ ' + (d.r>0 ? (d.d/d.r*100).toFixed(1) : '0.0') + '% livre para empenho</span>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  h+='<div class="m-pipeline-card" style="margin-bottom:20px;">';
+  h+='  <div class="m-pipeline-header">Pipeline de Execução Orçamentária (Lei nº 4.320/1964)</div>';
+  h+='  <div class="m-stages-grid">';
+  h+='    <div class="m-stage-item">';
+  h+='      <div class="m-stage-header"><span>1. Empenho</span><b>' + pctEmp.toFixed(1) + '%</b></div>';
+  h+='      <div class="m-progress-track"><div class="m-progress-bar bar-emp" style="width:' + Math.min(100, pctEmp) + '%"></div></div>';
+  h+='      <div class="m-stage-sub">' + bcmsBRL(d.e) + ' de ' + bcmsBRL(d.r) + '</div>';
+  h+='    </div>';
+  h+='    <div class="m-stage-item">';
+  h+='      <div class="m-stage-header"><span>2. Liquidação</span><b>' + pctLiq.toFixed(1) + '%</b></div>';
+  h+='      <div class="m-progress-track"><div class="m-progress-bar bar-liq" style="width:' + Math.min(100, pctLiq) + '%"></div></div>';
+  h+='      <div class="m-stage-sub">' + bcmsBRL(d.l||0) + ' de ' + bcmsBRL(d.e) + '</div>';
+  h+='    </div>';
+  h+='    <div class="m-stage-item">';
+  h+='      <div class="m-stage-header"><span>3. Pagamento</span><b>' + pctPag.toFixed(1) + '%</b></div>';
+  h+='      <div class="m-progress-track"><div class="m-progress-bar bar-pag" style="width:' + Math.min(100, pctPag) + '%"></div></div>';
+  h+='      <div class="m-stage-sub">' + bcmsBRL(d.p||0) + ' de ' + bcmsBRL(d.l||0) + '</div>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  h+='<div class="m-class-grid" style="margin-bottom:20px;">';
+  h+='  <div class="m-class-card"><span class="m-class-label">Plano Interno (PI)</span><span class="m-class-code">' + bcmsEsc(d.pi||'—') + '</span><span class="m-class-desc">' + bcmsEsc(d.pinome||'Sem denominação cadastrada') + '</span></div>';
+  h+='  <div class="m-class-card"><span class="m-class-label">Natureza da Despesa (ND)</span><span class="m-class-code">' + bcmsEsc(d.nd||'—') + '</span><span class="m-class-desc">' + bcmsEsc(d.ndnome||'Sem denominação cadastrada') + '</span></div>';
+  h+='  <div class="m-class-card"><span class="m-class-label">Ação Orçamentária</span><span class="m-class-code">' + bcmsEsc(d.acao||'—') + '</span><span class="m-class-desc">Ação Governamental LOA 2026</span></div>';
+  h+='  <div class="m-class-card"><span class="m-class-label">Fonte de Recursos</span><span class="m-class-code">' + bcmsEsc(d.u||'—') + '</span><span class="m-class-desc">' + bcmsEsc(fonte) + '</span></div>';
+  h+='</div>';
+
+  var nq=d.ncs.filter(function(n){return n[0];}).length;
+  h+='<div class="m-pipeline-header" style="margin-bottom:10px;">Notas de Crédito da Célula ('+nq+')</div>';
   var itens='';
   d.ncs.forEach(function(n){
     if(!n[0])return;
@@ -5198,14 +5359,30 @@ function bcmsCel(row){
     if(n[4]) meta.push('Emitente '+bcmsEsc(n[4]));
     if(n[1]) meta.push(bcmsEsc(n[1]));
     if(n[5]) meta.push('em '+bcmsEsc(n[5]));
-    itens+='<div class="m-nc"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+'</span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[2])+'</span></div>';
+    
+    var linkNC = '';
+    if(typeof HISTDATA !== 'undefined' && HISTDATA && HISTDATA.items){
+      for(var k=0; k<HISTDATA.items.length; k++){
+        if(HISTDATA.items[k].nc === n[0]){
+          linkNC = ' <button type="button" class="m-btn-pill" style="padding:2px 8px;font-size:0.7rem;margin-left:6px;" onclick="bcmsDetalheNC(\'' + HISTDATA.items[k].hid + '\')">🔍 Detalhar</button>';
+          break;
+        }
+      }
+    }
+
+    itens+='<div class="m-nc" style="margin-bottom:8px;"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+linkNC+'</span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[2])+'</span></div>';
     if(meta.length) itens+='<div class="m-nc-op">'+meta.join(' · ')+'</div>';
     if(n[3]) itens+='<div class="m-nc-desc">'+bcmsEsc(n[3])+'</div>';
     itens+='</div>';
   });
-  var nq=d.ncs.filter(function(n){return n[0];}).length;
-  h+='<div class="m-ncs-h">Notas de crédito da célula ('+nq+')</div>';
-  h+='<div class="m-ncs">'+(itens||'<p class="vazio">Sem notas de crédito para detalhar.</p>')+'</div>';
+  h+='<div class="m-ncs" style="margin-bottom:20px;">'+(itens||'<p class="vazio">Sem notas de crédito para detalhar.</p>')+'</div>';
+
+  h+='<div class="m-footer-actions-v2">';
+  h+='  <span class="m-footer-meta">SIAFI / Tesouro Gerencial · ' + nq + ' NC(s) vinculada(s)</span>';
+  h+='  <button type="button" class="m-btn-pill primary" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
+  h+='</div>';
+  h+='</div>';
+
   document.getElementById('modal-body').innerHTML=h;
   var m=document.getElementById('modal');
   m.classList.add('open');
@@ -5216,18 +5393,76 @@ function bcmsCel(row){
 
 function bcmsDay(row){
   var d=DAYDATA[row.getAttribute('data-day')];if(!d)return;
-  var h='<h3 id="modal-title">Movimentação de '+bcmsEsc(d.d)+'</h3>';
-  h+='<div class="m-kpis"><span>Nº de NC<b>'+d.n+'</b></span><span>Recebido<b class="col-pos">'+bcmsBRL(d.rec)+'</b></span><span>Reduções<b class="col-neg">'+bcmsBRL(d.red)+'</b></span><span class="ok">Líquido<b>'+bcmsBRL(d.liq)+'</b></span></div>';
-  h+='<div class="m-ncs-h">Notas de crédito do dia ('+d.ncs.length+')</div>';
+  var h='<div class="m-accent-bar" style="background:linear-gradient(90deg, #3B82F6 0%, #2563EB 50%, #10B981 100%);"></div>';
+  h+='<div class="m-content-wrap">';
+  h+='<div class="m-header-v2">';
+  h+='  <div class="m-header-meta-row">';
+  h+='    <span class="m-badge-op" style="background:rgba(59,130,246,0.12);color:#93C5FD;border-color:rgba(59,130,246,0.3);">📅 CRONOLOGIA DIÁRIA DO CRÉDITO</span>';
+  h+='    <span class="m-badge-status-lg status-info">● ' + d.n + ' NOTA' + (d.n===1?'':'S') + ' DE CRÉDITO</span>';
+  h+='  </div>';
+  h+='  <div class="m-title-row" style="padding-right:48px;">';
+  h+='    <div class="m-nc-code-block">';
+  h+='      <h3 id="modal-title">Movimentação de ' + bcmsEsc(d.d) + '</h3>';
+  h+='      <div class="m-sub-meta">';
+  h+='        <span class="m-meta-chip">Entradas: <b style="color:#34D399;">+' + bcmsBRL(d.rec) + '</b></span>';
+  h+='        <span class="m-meta-chip">Reduções: <b style="color:#F87171;">-' + bcmsBRL(d.red) + '</b></span>';
+  h+='      </div>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  h+='<div class="m-fin-section">';
+  h+='  <div class="m-fin-grid">';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Quantidade de Notas</span>';
+  h+='      <span class="m-fin-val">' + d.n + '</span>';
+  h+='      <span class="m-fin-sub">Lançamentos no dia</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Total Recebido (+)</span>';
+  h+='      <span class="m-fin-val col-prov">+' + bcmsBRL(d.rec) + '</span>';
+  h+='      <span class="m-fin-sub">Novos créditos</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card">';
+  h+='      <span class="m-fin-label">Total Reduções (−)</span>';
+  h+='      <span class="m-fin-val col-emp">-' + bcmsBRL(d.red) + '</span>';
+  h+='      <span class="m-fin-sub">Anulações / recolhimentos</span>';
+  h+='    </div>';
+  h+='    <div class="m-fin-card hero-saldo">';
+  h+='      <span class="m-fin-label">Resultado Líquido do Dia</span>';
+  h+='      <span class="m-fin-val-hero">' + bcmsBRL(d.liq) + '</span>';
+  h+='      <span class="m-fin-tag-hero">⚡ Movimentação líquida</span>';
+  h+='    </div>';
+  h+='  </div>';
+  h+='</div>';
+
+  h+='<div class="m-pipeline-header" style="margin-bottom:10px;">Notas de crédito do dia ('+d.ncs.length+')</div>';
   var itens='';
   d.ncs.forEach(function(n){
     var neg=n[3]<0;
-    itens+='<div class="m-nc"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+' <span class="pill-fonte">'+bcmsEsc(n[1])+'</span></span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[3])+'</span></div>';
+    var linkNC = '';
+    if(typeof HISTDATA !== 'undefined' && HISTDATA && HISTDATA.items){
+      for(var k=0; k<HISTDATA.items.length; k++){
+        if(HISTDATA.items[k].nc === n[0]){
+          linkNC = ' <button type="button" class="m-btn-pill" style="padding:2px 8px;font-size:0.7rem;margin-left:6px;" onclick="bcmsDetalheNC(\'' + HISTDATA.items[k].hid + '\')">🔍 Detalhar</button>';
+          break;
+        }
+      }
+    }
+
+    itens+='<div class="m-nc" style="margin-bottom:8px;"><div class="m-nc-h"><span class="m-nc-num">'+bcmsEsc(n[0])+' <span class="pill-fonte">'+bcmsEsc(n[1])+'</span>' + linkNC + '</span><span class="m-nc-val'+(neg?' neg':'')+'">'+bcmsBRL(n[3])+'</span></div>';
     if(n[2]) itens+='<div class="m-nc-op">'+bcmsEsc(n[2])+'</div>';
     if(n[4]) itens+='<div class="m-nc-desc">'+bcmsEsc(n[4])+'</div>';
     itens+='</div>';
   });
-  h+='<div class="m-ncs">'+(itens||'<p class="vazio">Sem NC neste dia.</p>')+'</div>';
+  h+='<div class="m-ncs" style="margin-bottom:20px;">'+(itens||'<p class="vazio">Sem NC neste dia.</p>')+'</div>';
+
+  h+='<div class="m-footer-actions-v2">';
+  h+='  <span class="m-footer-meta">SIAFI / Tesouro Gerencial · Movimentação em ' + bcmsEsc(d.d) + '</span>';
+  h+='  <button type="button" class="m-btn-pill primary" onclick="bcmsCelClose()">Fechar Janela ✕</button>';
+  h+='</div>';
+  h+='</div>';
+
   document.getElementById('modal-body').innerHTML=h;
   var m=document.getElementById('modal');
   m.classList.add('open');
