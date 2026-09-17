@@ -156,12 +156,17 @@ MESES_PT = {
     'JAN': 1, 'FEV': 2, 'MAR': 3, 'ABR': 4, 'MAI': 5, 'JUN': 6,
     'JUL': 7, 'AGO': 8, 'SET': 9, 'OUT': 10, 'NOV': 11, 'DEZ': 12,
 }
-RE_PRAZO_EMPENHO = re.compile(r"EMPENHO\s+AT[EÉ]\s+(\d{1,2})\s*([A-ZÇ]{3,5})\s*(\d{2,4})")
-RE_TRAVA_ND = re.compile(r"N[ÃA]O\s+DEVE\s+ALTERAR\s+ND/?UGR|SOMENTE\s+P/?\s*COTER")
+RE_PRAZO_EMPENHO = re.compile(
+    r"(?:EMPENHO\s+AT[EÉ]?|PRAZO\s+(?:DE\s+)?EMPENHO:?)\s+"
+    r"(\d{1,2})\s*(?:DE\s+)?([A-ZÇ]{3,9})\s*(?:DE\s+)?(\d{2,4})"
+)
+RE_TRAVA_ND = re.compile(
+    r"N[ÃA]O\s+DEVE\s+ALTERAR\s+ND/?UGR|SOMENTE\s+P/?\s*COTER|APLICACAO\s+RESTRITA|USO\s+RESTRITO"
+)
 
 
 def extrair_prazo_empenho(obj):
-    """Extrai a data-limite de empenho embutida no texto do Objeto da NC (ex.: 'EMPENHO ATE 30 SET 26')."""
+    """Extrai a data-limite de empenho embutida no texto do Objeto da NC (ex.: 'EMPENHO ATE 30 SET 26' ou 'PRAZO DE EMPENHO: 30 DE JULHO DE 2026')."""
     if not obj:
         return None
     m = RE_PRAZO_EMPENHO.search(str(obj).upper())
