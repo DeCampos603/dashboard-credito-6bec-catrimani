@@ -17,6 +17,7 @@ Uso:
 """
 
 import os
+import re
 import sys
 import argparse
 import datetime
@@ -149,6 +150,39 @@ def to_num(v):
         return -val if neg else val
     except ValueError:
         return 0.0
+
+
+MESES_PT = {
+    'JAN': 1, 'FEV': 2, 'MAR': 3, 'ABR': 4, 'MAI': 5, 'JUN': 6,
+    'JUL': 7, 'AGO': 8, 'SET': 9, 'OUT': 10, 'NOV': 11, 'DEZ': 12,
+}
+RE_PRAZO_EMPENHO = re.compile(r"EMPENHO\s+AT[EÉ]\s+(\d{1,2})\s*([A-ZÇ]{3,5})\s*(\d{2,4})")
+RE_TRAVA_ND = re.compile(r"N[ÃA]O\s+DEVE\s+ALTERAR\s+ND/?UGR|SOMENTE\s+P/?\s*COTER")
+
+
+def extrair_prazo_empenho(obj):
+    """Extrai a data-limite de empenho embutida no texto do Objeto da NC (ex.: 'EMPENHO ATE 30 SET 26')."""
+    if not obj:
+        return None
+    m = RE_PRAZO_EMPENHO.search(str(obj).upper())
+    if not m:
+        return None
+    dia_s, mes_s, ano_s = m.groups()
+    mes = MESES_PT.get(mes_s[:3])
+    if not mes:
+        return None
+    ano = int(ano_s)
+    if ano < 100:
+        ano += 2000
+    try:
+        return datetime.date(ano, mes, int(dia_s))
+    except ValueError:
+        return None
+
+
+def nc_tem_trava_finalidade(obj):
+    """Identifica NCs com finalidade/ND travada (uso restrito, só alterável pelo órgão repassador)."""
+    return bool(obj) and bool(RE_TRAVA_ND.search(str(obj).upper()))
 
 
 def clean_str(v):
@@ -552,9 +586,28 @@ def gerar_texto_mensagem(res):
     emp_catr_6bec = u_6bec_catr.get('emp', 0.0)
     p_emp_catr = (emp_catr_6bec / dot_catr_6bec * 100.0) if dot_catr_6bec > 0 else 0.0
 
+    hoje_data = agora_br.date()
+    ncs_catr_list_full = [x for x in bec.get('ncs_21em', {}).values() if not x.get('is_det')]
+    saldo_vencido = 0.0
+    saldo_travado = 0.0
+    for nc_item in ncs_catr_list_full:
+        if nc_item['cred'] <= SALDO_MINIMO:
+            continue
+        prazo = extrair_prazo_empenho(nc_item.get('obj'))
+        if prazo and prazo < hoje_data:
+            saldo_vencido += nc_item['cred']
+        elif nc_tem_trava_finalidade(nc_item.get('obj')):
+            saldo_travado += nc_item['cred']
+
     m.append("💰 *3. CRÉDITOS LIVRES PARA EMPENHO — 6º BEC (EXCLUSIVO AÇÃO 21EM)*")
-    m.append(f"_Recursos Exclusivos da Operação Catrimani II · Saldo Livre Total: *{fmt_brl(saldo_catr_6bec)}*_")
+    m.append(f"_Recursos Exclusivos da Operação Catrimani II — NÃO fazem parte do orçamento geral do 6º BEC · Saldo Livre Total: *{fmt_brl(saldo_catr_6bec)}*_")
     m.append(f"• *Dotação 21EM no 6º BEC:* *{fmt_brl(dot_catr_6bec)}* | *Empenho:* *{fmt_pct(p_emp_catr)}* ({fmt_brl(emp_catr_6bec)})")
+    if saldo_vencido > SALDO_MINIMO or saldo_travado > SALDO_MINIMO:
+        m.append("⚠️ *Atenção — nem todo o saldo acima está livre para uso imediato:*")
+        if saldo_vencido > SALDO_MINIMO:
+            m.append(f"   ├ 🔴 *{fmt_brl(saldo_vencido)}* já passou do prazo de empenho definido na própria NC (sujeito a recolhimento pelo órgão repassador).")
+        if saldo_travado > SALDO_MINIMO:
+            m.append(f"   └ 🔒 *{fmt_brl(saldo_travado)}* está travado para a finalidade específica descrita no Objeto da NC (a UG não pode trocar ND/UGR — só o órgão repassador altera).")
     m.append("")
     m.append("📌 *Saldos Livres por Célula Orçamentária (PI · ND):*")
     cels_21em = [c for c in bec['celulas'].values() if c['acao'] == '21EM' and c['cred'] > SALDO_MINIMO]
@@ -570,7 +623,7 @@ def gerar_texto_mensagem(res):
 
     m.append("")
     m.append("📜 *Detalhamento das Notas de Crédito (NCs) da Ação 21EM (6º BEC):*")
-    ncs_catr_list = [x for x in bec.get('ncs_21em', {}).values() if not x.get('is_det')]
+    ncs_catr_list = list(ncs_catr_list_full)
     ncs_catr_list.sort(key=lambda x: x['cred'], reverse=True)
     ncs_com_saldo = [x for x in ncs_catr_list if x['cred'] > SALDO_MINIMO]
     if ncs_com_saldo:
@@ -578,7 +631,16 @@ def gerar_texto_mensagem(res):
             pre = "└" if idx == min(5, len(ncs_com_saldo) - 1) else "├"
             emit_sigla = "COTER" if nc_item['emit'] == '160539' else ("COEX" if nc_item['emit'] == '160504' else f"UG {nc_item['emit']}")
             nc_curta = nc_item['nc'][-12:] if len(nc_item['nc']) > 12 else nc_item['nc']
-            m.append(f" {pre} *NC {nc_curta}* ({emit_sigla}) · *ND {nc_item['nd']}*")
+            prazo = extrair_prazo_empenho(nc_item.get('obj'))
+            tag = ""
+            if prazo and prazo < hoje_data:
+                tag = f" · 🔴 *PRAZO VENCIDO em {prazo.strftime('%d/%m/%y')}*"
+            elif prazo:
+                dias_rest = (prazo - hoje_data).days
+                tag = f" · ⏳ prazo {prazo.strftime('%d/%m/%y')} ({dias_rest}d restantes)"
+            if nc_tem_trava_finalidade(nc_item.get('obj')):
+                tag += " · 🔒 finalidade travada"
+            m.append(f" {pre} *NC {nc_curta}* ({emit_sigla}) · *ND {nc_item['nd']}*{tag}")
             m.append(f"   ↳ Saldo em Tela: *{fmt_brl(nc_item['cred'])}* | Repasse: {fmt_brl(nc_item['rec'])}")
             if nc_item['obj']:
                 m.append(f"   ↳ Objeto: _{nc_item['obj'][:45]}_")

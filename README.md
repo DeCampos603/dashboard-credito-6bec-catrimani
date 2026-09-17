@@ -102,5 +102,33 @@ $$\text{Crédito Disponível} = \text{Dotação Atual} - \text{Despesas Empenhad
 
 ---
 
+## ❓ Perguntas Frequentes
+
+### "O 6º BEC diz que não há crédito disponível da Catrimani, mas o site mostra um saldo alto. Por quê?"
+
+O número que o site/e-mail mostra em **"Créditos Livres para Empenho — 6º BEC (Exclusivo Ação 21EM)"** é **exclusivo da Operação Catrimani II (Ação 21EM)** — não é o orçamento geral do Batalhão, e não pode ser usado para qualquer finalidade.
+
+Pense nesse saldo como um **conjunto de vale-presentes**, não como dinheiro solto:
+
+- Cada **Nota de Crédito (NC)** que compõe o saldo é um "vale" enviado pelo COTER ou pela COEx com uma finalidade escrita no próprio Objeto (ex.: *"AQS SV DEDETIZAÇÃO E LIMPEZA DE FOSSA"*, *"CONTRATAÇÃO SV INTERNET SATELITAL"*). O texto **"ESSA UG NÃO DEVE ALTERAR ND/UGR"** significa que o 6º BEC não pode gastar aquele vale em outra coisa sem autorização do órgão que o enviou.
+- Muitas dessas NCs também trazem um **prazo de empenho** embutido no texto (ex.: *"EMPENHO ATÉ 5 SET 26"*). Depois desse prazo, o valor continua aparecendo no Tesouro Gerencial até ser formalmente recolhido, mas na prática **já não pode mais ser empenhado** pela unidade.
+- O relatório diário (`relatorio_email_6bec.py`) agora identifica automaticamente esses dois casos e mostra um aviso ⚠️ logo abaixo do saldo total, com o valor que está **vencido** (🔴) e o valor **travado por finalidade** (🔒).
+
+**Resumo:** o saldo total é real e está corretamente contabilizado no SIAFI, mas ele é fatiado em pedaços pequenos e amarrados a um uso específico — por isso a unidade pode, com razão, dizer que "não há crédito disponível" para uma necessidade que não se encaixe em nenhum desses vales, mesmo o total exibido sendo alto.
+
+### "O saldo de crédito disponível do site é o mesmo em todas as telas?"
+
+Não — o site mostra **números diferentes com escopos diferentes**, e é fácil confundi-los:
+
+| Onde aparece | O que é | Escopo |
+|---|---|---|
+| "Crédito Disponível em Tela" (topo do Resumo) | Saldo livre de **todas** as Ações Orçamentárias do 6º BEC (OGU + FEx) | 6º BEC inteiro |
+| "Créditos Livres — Exclusivo Ação 21EM" (e-mail, Seção 3) | Saldo livre **só** da Operação Catrimani II dentro do 6º BEC | 6º BEC · só 21EM |
+| "Crédito Disponível na Catrimani" (Painel Catrimani, Seção 4) | Saldo livre da 21EM somando as **10 UGs executoras**, não só o 6º BEC | Multi-UG · só 21EM |
+
+Ao comparar um número citado verbalmente pela unidade com o site, confirme sempre **qual dessas três linhas** está sendo referida.
+
+---
+
 ## 🛡️ Segurança e Integridade
 - Este repositório é completamente isolado dos demais painéis (`Dashboard-Credito-BCMS` e `Agente-Execucao-Orcamentaria`), não alterando qualquer dependência ou rotina já existente.

@@ -42,18 +42,9 @@ jobs:
           SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}
         run: python gerar_dashboard.py
 
-      - name: Enviar Relatório Executivo Diário (WhatsApp Format)
-        env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
-          SMTP_USER: ${{ secrets.SMTP_USER || secrets.EMAIL_REMETENTE }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD || secrets.EMAIL_SENHA }}
-          EMAIL_REMETENTE: ${{ secrets.EMAIL_REMETENTE || secrets.SMTP_USER }}
-          EMAIL_SENHA: ${{ secrets.EMAIL_SENHA || secrets.SMTP_PASSWORD }}
-          EMAIL_DESTINO: ${{ secrets.EMAIL_DESTINO || 'marcelofsaldanha@gmail.com' }}
-          EMAIL_BCC: ${{ secrets.EMAIL_BCC }}
-          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}
-        run: python relatorio_email_6bec.py
+      # O envio do relatório executivo diário por e-mail é responsabilidade exclusiva
+      # do workflow budget_dispatch.yml (segunda a sexta). Mantido só aqui duplicaria
+      # o e-mail em todo dia útil, pois os dois workflows disparam às 11:00 UTC.
 
       - name: Salvar histórico (commit se mudou)
         continue-on-error: true
