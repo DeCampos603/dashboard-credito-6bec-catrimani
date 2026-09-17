@@ -87,6 +87,32 @@ SIGLAS_MILITARES_UGS = {
 }
 
 
+def obter_horario_brasilia():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("America/Sao_Paulo"))
+    except Exception:
+        pass
+    try:
+        import zoneinfo
+        return datetime.datetime.now(zoneinfo.ZoneInfo("America/Sao_Paulo"))
+    except Exception:
+        pass
+    return datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)
+
+
+def _dt_br(s):
+    if not s:
+        return datetime.datetime(2000, 1, 1)
+    parts = str(s).strip().split("/")
+    if len(parts) == 3:
+        try:
+            return datetime.datetime(int(parts[2]), int(parts[1]), int(parts[0]))
+        except Exception:
+            pass
+    return datetime.datetime(2000, 1, 1)
+
+
 def fmt_brl(v):
     if v is None:
         return "R$ 0,00"
@@ -345,16 +371,23 @@ def carregar_dados(caminho_dados):
             c_entry['emp']  += emp
 
             if is_21em and is_nc:
+                if 'recs' not in c_entry:
+                    c_entry['recs'] = []
+                val_inflow = prov_liq if not is_det else max(0.0, cred)
+                if val_inflow > 0.005:
+                    c_entry['recs'].append((nc, val_inflow, dia))
+
                 if nc not in ncs_6bec_21em:
                     ncs_6bec_21em[nc] = {
                         'nc': nc, 'emit': emit, 'dia': dia, 'nd': nd, 'ndd': ndd, 'pi': pi,
-                        'rec': 0.0, 'cnc': 0.0, 'cred': 0.0, 'emp': 0.0, 'obj': obj
+                        'rec': 0.0, 'cnc': 0.0, 'cred': 0.0, 'emp': 0.0, 'obj': obj,
+                        'is_det': is_det
                     }
                 n_entry = ncs_6bec_21em[nc]
                 n_entry['rec'] += prov_rec
                 n_entry['cnc'] += prov_cnc
-                n_entry['cred'] += cred
-                n_entry['emp'] += emp
+                if is_det:
+                    n_entry['is_det'] = True
                 if obj and len(obj) > len(n_entry['obj']):
                     n_entry['obj'] = obj
 
@@ -385,6 +418,29 @@ def carregar_dados(caminho_dados):
                 nd_catr['cred'] += cred
                 nd_catr['emp']  += emp
                 nd_catr['liq']  += liq
+
+    # Conciliação FIFO das NCs da Ação 21EM no 6º BEC (Cell-Level Attribution)
+    for k_cel, c_entry in celulas_6bec.items():
+        if k_cel[1] != '21EM':
+            continue
+        saldo_cel = c_entry['cred']
+        recs = c_entry.get('recs', [])
+        recs_sorted = sorted(recs, key=lambda x: _dt_br(x[2]), reverse=True)
+        restante = saldo_cel
+        for nc_code, val_rec, _ in recs_sorted:
+            if nc_code in ncs_6bec_21em:
+                if restante > 0.005:
+                    atribuido = min(val_rec, restante)
+                    ncs_6bec_21em[nc_code]['cred'] += atribuido
+                    restante -= atribuido
+
+    for nc_code, n_entry in ncs_6bec_21em.items():
+        if n_entry.get('is_det'):
+            n_entry['emp'] = 0.0
+            n_entry['cred'] = 0.0
+        else:
+            prov_net = n_entry['rec'] - n_entry['cnc']
+            n_entry['emp'] = max(0.0, prov_net - n_entry['cred'])
 
     for u_cod, d_u in dados_6bec.items():
         dot = d_u['prov'] - d_u['conc']
@@ -442,8 +498,9 @@ def gerar_texto_mensagem(res):
     det_ncs = bec['detalhamentos']
     marco = obter_marco_atual()
 
-    hoje_str = datetime.datetime.now().strftime("%d/%m/%Y")
-    hora_str = datetime.datetime.now().strftime("%H:%M")
+    agora_br = obter_horario_brasilia()
+    hoje_str = agora_br.strftime("%d/%m/%Y")
+    hora_str = agora_br.strftime("%H:%M")
 
     def icone(pct, meta):
         if meta <= 0: return "⚪"
@@ -458,7 +515,7 @@ def gerar_texto_mensagem(res):
     m.append("📋 *RELATÓRIO DIÁRIO DE EXECUÇÃO ORÇAMENTÁRIA & CRÉDITO*")
     m.append("🏛️ *6º Batalhão de Engenharia de Construção (6º BEC)*")
     m.append("🎖️ *Comitê de Acompanhamento da Operação Catrimani II*")
-    m.append(f"⏱ *Posição:* {hoje_str} às {hora_str} · *Marco Vigente:* {marco['marco']}")
+    m.append(f"⏱ *Posição:* {hoje_str} às {hora_str} (Horário de Brasília) · *Marco Vigente:* {marco['marco']}")
     m.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     m.append("")
 
@@ -513,7 +570,7 @@ def gerar_texto_mensagem(res):
 
     m.append("")
     m.append("📜 *Detalhamento das Notas de Crédito (NCs) da Ação 21EM (6º BEC):*")
-    ncs_catr_list = list(bec.get('ncs_21em', {}).values())
+    ncs_catr_list = [x for x in bec.get('ncs_21em', {}).values() if not x.get('is_det')]
     ncs_catr_list.sort(key=lambda x: x['cred'], reverse=True)
     ncs_com_saldo = [x for x in ncs_catr_list if x['cred'] > SALDO_MINIMO]
     if ncs_com_saldo:
@@ -580,7 +637,7 @@ def gerar_texto_mensagem(res):
 
 def enviar_email(corpo_texto, anexos=None):
     anexos = anexos or []
-    hoje_str = datetime.datetime.now().strftime('%d/%m/%Y')
+    hoje_str = obter_horario_brasilia().strftime('%d/%m/%Y')
     msg = MIMEMultipart()
     msg['From'] = EMAIL_REMETENTE
     msg['To'] = EMAIL_DESTINO
