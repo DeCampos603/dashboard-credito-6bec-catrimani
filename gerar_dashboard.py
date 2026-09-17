@@ -4100,24 +4100,6 @@ select option:checked, .flt option:checked, .hist-select option:checked {
   .det td.mono2, .det th:first-child, .det td:first-child { position: sticky; left: 0; background: var(--bg-surface); }
 }
 
-/* Indicador e contenedor aprimorado para tabelas mobile */
-.tbl-scroll-hint {
-  display: none;
-}
-@media (max-width: 768px) {
-  .tbl-scroll-hint {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 6px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--ink-muted);
-    padding: 6px 12px;
-    background: var(--bg-subtle);
-    border-bottom: 1px solid var(--border);
-  }
-}
 /* ==========================================================================
    ESTILOS PARA A ABA: HISTÓRICO DE NOTAS DE CRÉDITO E MODAL EXPANDIDO
    ========================================================================== */
