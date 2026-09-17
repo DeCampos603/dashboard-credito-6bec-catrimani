@@ -132,12 +132,29 @@ def ler_linhas(path):
 
 
 # ---------------- ETL ----------------
-def _dt_br(s):
+def obter_horario_brasilia():
     try:
-        dd, mm, aa = str(s).split("/")
-        return datetime.date(int(aa), int(mm), int(dd))
+        import zoneinfo
+        tz_br = zoneinfo.ZoneInfo("America/Sao_Paulo")
+        return datetime.datetime.now(tz_br)
     except Exception:
-        return None
+        tz_br = datetime.timezone(datetime.timedelta(hours=-3))
+        return datetime.datetime.now(tz_br)
+
+def _dt_br(s):
+    if not s:
+        return datetime.date.min
+    if isinstance(s, datetime.datetime):
+        return s.date()
+    if isinstance(s, datetime.date):
+        return s
+    try:
+        parts = str(s).strip().split("/")
+        if len(parts) == 3:
+            return datetime.date(int(parts[2]), int(parts[1]), int(parts[0]))
+    except Exception:
+        pass
+    return datetime.date.min
 
 def anotar_trocas_nd(res):
     for cod, d in res.items():
@@ -290,6 +307,8 @@ def etl(path):
     catrimani_totais = {"prov": 0.0, "conc": 0.0, "dot": 0.0, "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0}
     catrimani_por_ug = {}
     catrimani_por_nd = {}
+    catrimani_celulas = {}
+    catrimani_ncs_map = {}
     catrimani_linhas = []
 
     nomes_padrao_ugs = {
@@ -448,6 +467,20 @@ def etl(path):
             catrimani_totais["pag"]  += pag
             catrimani_totais["count"] += 1
 
+            cel_k = (ug, acao, pi, nd)
+            if cel_k not in catrimani_celulas:
+                catrimani_celulas[cel_k] = {
+                    "prov": 0.0, "conc": 0.0, "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0,
+                    "recs": []
+                }
+            c_cel = catrimani_celulas[cel_k]
+            c_cel["prov"] += prov
+            c_cel["conc"] += conc
+            c_cel["cred"] += cred
+            c_cel["emp"]  += emp
+            c_cel["liq"]  += liq
+            c_cel["pag"]  += pag
+
             if ug not in catrimani_por_ug:
                 nom = nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}")
                 sigla_m = siglas_padrao_ugs.get(ug, ug)
@@ -473,16 +506,42 @@ def etl(path):
                 u_nd = u_catr["nds"][nd]
                 u_nd["prov"] += prov; u_nd["emp"] += emp; u_nd["cred"] += cred; u_nd["liq"] += liq; u_nd["pag"] += pag
 
-            # Apenas linhas com Nota de Crédito real compõem o Extrato de NCs (evita poluir com empenhos negativos sem NC)
+            # Linhas com Nota de Crédito real compõem o Extrato de NCs
             if is_nc:
-                nc_reg = {
-                    "nc": nc, "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or ug),
-                    "emit": emit, "emit_nome": emit_nome, "acao": acao, "pi": pi, "pi_nome": pi_nome,
-                    "nd": nd, "nd_desc": nd_nome, "op": op, "obj": obj,
+                nc_map_key = (nc, ug)
+                op_up = (op or "").upper()
+                prov_liq = prov - conc
+                is_det = ("DETALHAMENTO" in op_up) or (emit == ug and abs(prov_liq) < 0.01)
+
+                if nc_map_key not in catrimani_ncs_map:
+                    catrimani_ncs_map[nc_map_key] = {
+                        "nc": nc, "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}"),
+                        "emit": emit, "emit_nome": emit_nome, "acao": acao, "pi": pi, "pi_nome": pi_nome,
+                        "nd": nd, "nd_desc": nd_nome, "op": op, "obj": obj,
+                        "linhas": [], "prov": 0.0, "cred_calc": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0,
+                        "is_det": is_det, "nds_envolvidas": set()
+                    }
+                nc_item = catrimani_ncs_map[nc_map_key]
+                if not nc_item["dia"] and dia: nc_item["dia"] = dia
+                if not nc_item["obj"] and obj: nc_item["obj"] = obj
+                if nd: nc_item["nds_envolvidas"].add(nd)
+                nc_item["linhas"].append({
+                    "acao": acao, "pi": pi, "pi_nome": pi_nome, "nd": nd, "nd_desc": nd_nome,
+                    "op": op, "obj": obj, "dia": dia,
                     "prov": prov, "conc": conc, "cred": cred, "emp": emp, "liq": liq, "pag": pag
-                }
-                catrimani_linhas.append(nc_reg)
-                u_catr["ncs"].append(nc_reg)
+                })
+                nc_item["liq"] += liq
+                nc_item["pag"] += pag
+
+                if not is_det:
+                    nc_item["prov"] += prov_liq
+                    val_inflow = prov_liq
+                else:
+                    nc_item["is_det"] = True
+                    val_inflow = max(0.0, cred)
+
+                if val_inflow > 0.005:
+                    c_cel["recs"].append((nc_map_key, val_inflow, dia))
 
     total_linhas = sum(d["n"] for d in res.values())
     if total_linhas == 0:
@@ -502,6 +561,72 @@ def etl(path):
             alertas.append(f"{d['nome']}: Crédito Disponível ({d['cred']:.2f}) difere de Recebido−Concedido−Empenhado ({saldo_calc:.2f}).")
         if d["emp"] < -0.01:
             alertas.append(f"{d['nome']}: Empenhado negativo ({d['emp']:.2f}).")
+
+    # 3. Conciliação FIFO das Notas de Crédito da Operação Catrimani (Cell-Level Attribution)
+    for cel_key, c in catrimani_celulas.items():
+        saldo_cel = c["cred"]
+        recs_sorted = sorted(c["recs"], key=lambda x: _dt_br(x[2]), reverse=True)
+        restante = saldo_cel
+        for nc_key, val_rec, _ in recs_sorted:
+            if restante <= 0.005:
+                break
+            atribuido = min(val_rec, restante)
+            catrimani_ncs_map[nc_key]["cred_calc"] += atribuido
+            restante -= atribuido
+
+    reconciled_catr = []
+    for key, it in catrimani_ncs_map.items():
+        prov = it["prov"]
+        cred = it["cred_calc"]
+        is_det = it["is_det"]
+
+        if is_det:
+            it["emp"] = 0.0
+            it["cred"] = 0.0
+            it["status"] = "Detalhamento de ND"
+            it["status_slug"] = "detalhada"
+            nd_orig = [l["nd"] for l in it["linhas"] if l["cred"] < -0.01]
+            nd_dest = [l["nd"] for l in it["linhas"] if l["cred"] > 0.01]
+            val_troca = sum(abs(l["cred"]) for l in it["linhas"] if l["cred"] > 0.01)
+            if nd_orig and nd_dest:
+                it["nd_troca"] = f"{nd_orig[0]} → {nd_dest[0]}"
+                it["nd"] = nd_dest[0]
+            else:
+                it["nd_troca"] = it["nd"]
+            it["val_detalhado"] = val_troca
+            if it["prov"] <= 0.005:
+                it["prov"] = val_troca
+        else:
+            it["emp"] = max(0.0, prov - cred)
+            it["cred"] = cred
+            op_up = (it["op"] or "").upper()
+            if "ANULA" in op_up or "CANCEL" in op_up or prov < -0.01:
+                it["status"] = "Cancelada / Anulada"
+                it["status_slug"] = "canc"
+            elif cred <= 0.01 and it["emp"] > 0:
+                it["status"] = "Totalmente Executada"
+                it["status_slug"] = "exec"
+            elif it["emp"] > 0 and cred > 0.01:
+                it["status"] = "Parcialmente Executada"
+                it["status_slug"] = "parcial"
+            elif it["emp"] == 0 and cred > 0.01:
+                it["status"] = "Disponível"
+                it["status_slug"] = "disp"
+            else:
+                it["status"] = "Sem Saldo / Zerada"
+                it["status_slug"] = "zerada"
+
+        if isinstance(it.get("nds_envolvidas"), set):
+            it["nds_envolvidas"] = list(it["nds_envolvidas"])
+
+        reconciled_catr.append(it)
+
+    reconciled_catr.sort(key=lambda x: _dt_br(x.get("dia")), reverse=True)
+    catrimani_linhas = reconciled_catr
+
+    # Popula ncs de cada UG com os itens conciliados e limpos
+    for u_catr in catrimani_por_ug.values():
+        u_catr["ncs"] = [it for it in catrimani_linhas if it["ug"] == u_catr["cod"]]
 
     # Cálculos Catrimani
     catrimani_totais["dot"] = catrimani_totais["prov"] - catrimani_totais["conc"]
@@ -527,11 +652,14 @@ def etl(path):
         ot["n_ncs_cnt"] = len(ot["n_ncs"])
         ot["n_ncs"] = ot["n_ncs_cnt"]
 
+    catrimani_by_nc = {it["nc"]: it for it in catrimani_linhas}
+
     catrimani_data = {
         "totais": catrimani_totais,
         "por_ug": ugs_catr_list,
         "por_nd": nds_catr_list,
         "linhas": catrimani_linhas,
+        "by_nc": catrimani_by_nc,
         "ncs_distintas": catrimani_ncs_distintas,
         "total_linhas_brutas": len(catrimani_linhas)
     }
@@ -800,7 +928,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         u_hist_items = []
     ALVOS = _par(u); sfx = u["key"]
     tot = {k: sum(res[c][k] for c, _ in ALVOS) for k in ("prov", "conc", "cred", "emp", "liq", "pag", "n")}
-    ger = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
+    ger = obter_horario_brasilia().strftime("%d/%m/%Y às %H:%M")
     posicao = periodo if periodo else (data_str[8:10] + "/" + data_str[5:7] + "/" + data_str[0:4])
 
     delta_html = ""
@@ -2135,8 +2263,27 @@ def secao_operacao_catrimani(catr, data_str, periodo):
 
     initial_catr_rows = []
     for item in linhas[:25]:
-        st_cor = "var(--ok, #10B981)" if item["cred"] > 0.01 else "var(--ink-muted)"
-        st_txt = "Com Saldo" if item["cred"] > 0.01 else "Empenhada"
+        if item.get("is_det"):
+            st_cor = "var(--primary, #3B82F6)"
+            st_txt = "🔄 Detalhada"
+            nd_disp = f'<span class="pill-nd" style="background:rgba(59,130,246,0.12);color:#2563EB;font-weight:700;">{esc(item.get("nd_troca") or item["nd"])}</span>'
+        elif item["cred"] > 0.01 and item["emp"] > 0.01:
+            st_cor = "var(--gold, #F59E0B)"
+            st_txt = "Parcial"
+            nd_disp = f'{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span>'
+        elif item["cred"] > 0.01:
+            st_cor = "var(--ok, #10B981)"
+            st_txt = "Com Saldo"
+            nd_disp = f'{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span>'
+        elif item["prov"] <= 0.01:
+            st_cor = "var(--bad, #EF4444)"
+            st_txt = "Anulada"
+            nd_disp = f'{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span>'
+        else:
+            st_cor = "var(--ink-muted)"
+            st_txt = "Empenhada"
+            nd_disp = f'{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span>'
+
         nc_cod = esc(item["nc"])
         initial_catr_rows.append(
             f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'{nc_cod}\')" '
@@ -2146,7 +2293,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
             f'<td><b class="nc-mono">{esc(item["nc"])}</b></td>'
             f'<td><b>{esc(item["ug"])}</b> <span class="tbl-om-sub">{esc(item["ug_nome"])}</span></td>'
             f'<td><span class="pill-ptres">{esc(item["acao"])}</span> · <span class="pill-pi">{esc(item["pi"])}</span></td>'
-            f'<td>{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span></td>'
+            f'<td>{nd_disp}</td>'
             f'<td class="wrap-txt" title="{esc(item["obj"])}">{esc(item["obj"][:55])}...</td>'
             f'<td class="num">{esc(brl(item["prov"]))}</td>'
             f'<td class="num">{esc(brl(item["emp"]))}</td>'
@@ -2222,9 +2369,10 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         <option value="167">FEx (167)</option>
       </select>
       <select class="flt" id="flt-catr-saldo" aria-label="Filtrar por saldo" onchange="bcmsFiltraCatrimani()">
-        <option value="">Saldo: todos</option>
+        <option value="">Saldo / Status: todos</option>
         <option value="com_saldo">🟢 Apenas com Saldo Livre (&gt; R$ 0)</option>
-        <option value="zerada">⚪ Empenhadas / Zeradas</option>
+        <option value="zerada">⚪ Empenhadas / Executadas</option>
+        <option value="detalhada">🔄 Detalhamentos de ND (Trocas)</option>
       </select>
     </div>
     <div class="tbl-wrap">
@@ -2324,7 +2472,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
                                  "logo": u["logo"], "accent": u["accent"]} for u in UNIDADES}, ensure_ascii=False)
     u0 = UNIDADES[0]
     posicao = periodo if periodo else (data_str[8:10] + "/" + data_str[5:7] + "/" + data_str[0:4])
-    ger = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
+    ger = obter_horario_brasilia().strftime("%d/%m/%Y às %H:%M")
     celdata_json = json.dumps(CEL, ensure_ascii=False).replace("</", "<\\/")
     ncdata_json = json.dumps(NCD, ensure_ascii=False).replace("</", "<\\/")
     daydata_json = json.dumps(DAY, ensure_ascii=False).replace("</", "<\\/")
@@ -2377,7 +2525,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
 <footer class="rodape">
   <p class="rodape-brand">⚙ 6º Batalhão de Engenharia de Construção · Operação Catrimani II · Comando Militar da Amazônia</p>
   <p><b>Metodologia:</b> Crédito Disponível = Provisão Recebida − Provisão Concedida − Despesas Empenhadas (saldo líquido não empenhado no Tesouro Gerencial / SIAFI). O detalhe é o saldo real por célula orçamentária (Ação · PI · ND). A aba Catrimani consolida o acompanhamento inter-unidades de todas as UGs executoras da Ação 21EM.</p>
-  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ Dados com defasagem de aproximadamente 24 horas.</b> · Painel atualizado em {esc(ger)}</p>
+  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ Dados com defasagem de aproximadamente 24 horas.</b> · Painel atualizado em {esc(ger)} (Horário de Brasília)</p>
   <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 3º Sgt De Campos (BCMS) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> TC Saldanha (Ba Ap Log)</p>
 </footer>
 <script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};</script>
@@ -5368,9 +5516,88 @@ function bcmsPaginaHistorico(delta){
   if(scrollCont) scrollCont.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
+function bcmsFormatCatrItem(cl){
+  var isDet = Boolean(cl.is_det || (cl.op === 'DETALHAMENTO DE CREDITO') || (cl.status_slug === 'detalhada'));
+  var stLabel = 'Totalmente Executada';
+  var stSlug = 'danger';
+  if(isDet){
+    stLabel = 'Detalhamento de ND';
+    stSlug = 'info';
+  } else if(cl.cred > 0.01 && cl.emp > 0.01){
+    stLabel = 'Parcialmente Executada';
+    stSlug = 'warn';
+  } else if(cl.cred > 0.01){
+    stLabel = 'Disponível';
+    stSlug = 'ok';
+  } else if(cl.prov <= 0.01){
+    stLabel = 'Cancelada / Anulada';
+    stSlug = 'muted';
+  }
+
+  var subItens = [];
+  if(cl.linhas && cl.linhas.length > 1){
+    cl.linhas.forEach(function(m){
+      subItens.push({
+        acao: m.acao, pi: m.pi, nd: m.nd,
+        val: (m.prov || m.cred || 0),
+        op: m.op, desc: m.nd_desc || m.obj
+      });
+    });
+  }
+
+  return {
+    hid: cl.nc,
+    nc: cl.nc,
+    op: cl.op || (isDet ? 'DETALHAMENTO DE CREDITO' : 'DESCENTRALIZACAO DE CREDITO'),
+    dia: cl.dia || '—',
+    dias: null,
+    status: stLabel,
+    status_slug: stSlug,
+    emit_cod: cl.emit || '160073',
+    emit_nome: cl.emit_nome || 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
+    fav_cod: cl.ug || '—',
+    fav_nome: cl.ug_nome || ('UG ' + cl.ug),
+    om_sigla: cl.ug_nome || cl.ug,
+    ptres: cl.acao || '21EM',
+    acao_desc: 'Ação Governamental ' + (cl.acao || '21EM') + ' (Operação Catrimani II)',
+    fonte: (String(cl.ug).indexOf('167') === 0) ? 'FEx' : 'OGU',
+    nd: cl.nd_troca ? (cl.nd + ' (' + cl.nd_troca + ')') : (cl.nd || '—'),
+    nd_desc: cl.nd_desc || (isDet ? 'Transferência interna entre NDs' : 'Natureza de Despesa'),
+    pi: cl.pi || '—',
+    pi_desc: cl.pi_nome || 'Plano Interno',
+    prov: cl.prov || 0,
+    bloq: 0,
+    emp: cl.emp || 0,
+    liq: cl.liq || 0,
+    pag: cl.pag || 0,
+    cred: cl.cred || 0,
+    obj: cl.obj || (isDet ? ('Detalhamento de crédito interno: ' + (cl.nd_troca || '')) : ''),
+    itens: subItens.length > 1 ? subItens : null,
+    is_det: isDet,
+    nd_troca: cl.nd_troca
+  };
+}
+
 function bcmsDetalheNC(hid){
   var item = null;
-  if(typeof HISTDATA !== 'undefined' && HISTDATA){
+  var secCatr = document.getElementById('secao-CATRIMANI');
+  var isCatrTab = (typeof CURR_UNIDADE !== 'undefined' && CURR_UNIDADE === 'CATRIMANI') ||
+                  (secCatr && secCatr.style.display !== 'none');
+
+  if(isCatrTab && typeof CATRDATA !== 'undefined' && CATRDATA){
+    if(CATRDATA.by_nc && CATRDATA.by_nc[hid]){
+      item = bcmsFormatCatrItem(CATRDATA.by_nc[hid]);
+    } else if(CATRDATA.linhas){
+      for(var c = 0; c < CATRDATA.linhas.length; c++){
+        if(CATRDATA.linhas[c].nc === hid){
+          item = bcmsFormatCatrItem(CATRDATA.linhas[c]);
+          break;
+        }
+      }
+    }
+  }
+
+  if(!item && typeof HISTDATA !== 'undefined' && HISTDATA){
     if(HISTDATA.by_id && HISTDATA.by_id[hid]){
       item = HISTDATA.by_id[hid];
     } else if(HISTDATA[hid]){
@@ -5385,57 +5612,20 @@ function bcmsDetalheNC(hid){
       }
     }
   }
-  if(!item && typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas){
-    var matching = [];
-    for(var c = 0; c < CATRDATA.linhas.length; c++){
-      var cl = CATRDATA.linhas[c];
-      if(cl.nc === hid || cl.hid === hid || (cl.nc && cl.nc.indexOf(hid) !== -1)){
-        matching.push(cl);
+
+  if(!item && typeof CATRDATA !== 'undefined' && CATRDATA){
+    if(CATRDATA.by_nc && CATRDATA.by_nc[hid]){
+      item = bcmsFormatCatrItem(CATRDATA.by_nc[hid]);
+    } else if(CATRDATA.linhas){
+      for(var c2 = 0; c2 < CATRDATA.linhas.length; c2++){
+        if(CATRDATA.linhas[c2].nc === hid){
+          item = bcmsFormatCatrItem(CATRDATA.linhas[c2]);
+          break;
+        }
       }
     }
-    if(matching.length > 0){
-      var cl = matching[0];
-      var totProv = 0, totEmp = 0, totCred = 0, totLiq = 0, totPag = 0;
-      var subItens = [];
-      matching.forEach(function(m){
-        totProv += (m.prov || 0);
-        totEmp  += (m.emp || 0);
-        totCred += (m.cred || 0);
-        totLiq  += (m.liq || 0);
-        totPag  += (m.pag || 0);
-        subItens.push({acao: m.acao, pi: m.pi, nd: m.nd, val: m.prov || m.cred || 0});
-      });
-      item = {
-        hid: cl.nc,
-        nc: cl.nc,
-        op: cl.op || 'DESCENTRALIZACAO DE CREDITO',
-        dia: cl.dia || '—',
-        dias: null,
-        status: (totCred > 0.01 ? 'Disponível' : 'Executado Integral'),
-        status_slug: (totCred > 0.01 ? 'ok' : 'danger'),
-        emit_cod: cl.emit || '160073',
-        emit_nome: cl.emit_nome || 'DIRETORIA DE GESTAO ORCAMENTARIA - GESTOR',
-        fav_cod: cl.ug || '—',
-        fav_nome: cl.ug_nome || ('UG ' + cl.ug),
-        om_sigla: cl.ug_nome || cl.ug,
-        ptres: cl.acao || '21EM',
-        acao_desc: 'Ação Governamental ' + (cl.acao || '21EM') + ' (Operação Catrimani II)',
-        fonte: (String(cl.ug).indexOf('167') === 0) ? 'FEx' : 'OGU',
-        nd: cl.nd || '—',
-        nd_desc: cl.nd_desc || 'Natureza de Despesa',
-        pi: cl.pi || '—',
-        pi_desc: cl.pi_nome || 'Plano Interno',
-        prov: totProv,
-        bloq: 0,
-        emp: totEmp,
-        liq: totLiq,
-        pag: totPag,
-        cred: totCred,
-        obj: cl.obj || '',
-        itens: subItens.length > 1 ? subItens : null
-      };
-    }
   }
+
   if(!item && typeof NCDATA !== 'undefined' && NCDATA && NCDATA[hid]){
     var ndo = NCDATA[hid];
     item = {
@@ -5484,7 +5674,18 @@ function bcmsDetalheNC(hid){
   var isCatr = (item.ptres === '21EM') || (item.obj && item.obj.indexOf('CATRIMANI') !== -1) || (item.acao_desc && item.acao_desc.indexOf('21EM') !== -1);
   var badgeOp = isCatr ? '<span class="m-badge-op">🛡️ OPERAÇÃO CATRIMANI II · AÇÃO 21EM</span>' : '<span class="m-badge-op" style="color:#60A5FA;background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.3);">🏛️ 6º BATALHÃO DE ENGENHARIA DE CONSTRUÇÃO</span>';
   var barGrad = isCatr ? 'linear-gradient(90deg, #10B981 0%, #059669 35%, #F59E0B 75%, #EAB308 100%)' : 'linear-gradient(90deg, #10B981 0%, #059669 35%, #2563EB 75%, #8B5CF6 100%)';
-  var statusBadge = cred > 0 ? '<span class="m-badge-status-lg status-ok">● DISPONÍVEL INTEGRAL</span>' : '<span class="m-badge-status-lg status-warn">● EXECUTADO INTEGRAL</span>';
+  var statusBadge = '';
+  if(item.is_det || item.status_slug === 'info'){
+    statusBadge = '<span class="m-badge-status-lg" style="background:rgba(59,130,246,0.15);color:#2563EB;border:1px solid rgba(59,130,246,0.35);">🔄 DETALHAMENTO DE ND' + (item.nd_troca ? ' (' + bcmsEsc(item.nd_troca) + ')' : '') + '</span>';
+  } else if(item.status_slug === 'warn' || (cred > 0.01 && emp > 0.01)){
+    statusBadge = '<span class="m-badge-status-lg status-warn">● PARCIALMENTE EXECUTADA</span>';
+  } else if(cred > 0.01){
+    statusBadge = '<span class="m-badge-status-lg status-ok">● DISPONÍVEL INTEGRAL</span>';
+  } else if(item.prov <= 0.01){
+    statusBadge = '<span class="m-badge-status-lg" style="background:rgba(239,68,68,0.12);color:#EF4444;border:1px solid rgba(239,68,68,0.3);">● CANCELADA / ANULADA</span>';
+  } else {
+    statusBadge = '<span class="m-badge-status-lg status-warn">● EXECUTADO INTEGRAL</span>';
+  }
 
   var fonteExtenso = item.fonte === 'OGU' ? '160 - Orçamento Geral da União (OGU)' : (item.fonte === 'FEx' ? '167 - Fundo do Exército (FEx)' : item.fonte);
 
@@ -6345,8 +6546,9 @@ function bcmsFiltraCatrimani(){
     if(fug && it.ug !== fug) return false;
     if(ffonte && String(it.ug).indexOf(ffonte) !== 0) return false;
     if(fsaldo){
-      if(fsaldo === 'com_saldo' && it.cred <= 0.01) return false;
-      if(fsaldo === 'zerada' && it.cred > 0.01) return false;
+      if(fsaldo === 'com_saldo' && (it.cred <= 0.01 || it.is_det)) return false;
+      if(fsaldo === 'zerada' && (it.cred > 0.01 || it.is_det)) return false;
+      if(fsaldo === 'detalhada' && !it.is_det && it.status_slug !== 'detalhada') return false;
     }
     if(tokens.length > 0){
       var rowText = (
@@ -6359,7 +6561,9 @@ function bcmsFiltraCatrimani(){
         (it.pi || '') + ' ' +
         (it.pi_nome || '') + ' ' +
         (it.nd || '') + ' ' +
+        (it.nd_troca || '') + ' ' +
         (it.nd_desc || '') + ' ' +
+        (it.status || '') + ' ' +
         (it.obj || '')
       ).toLowerCase();
       for(var k=0; k<tokens.length; k++){
@@ -6399,8 +6603,28 @@ function bcmsRenderCatrimani(pag){
     h = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--ink-muted);">Nenhuma Nota de Crédito encontrada com os filtros selecionados.</td></tr>';
   } else {
     slice.forEach(function(it){
-      var stCor = it.cred > 0.01 ? 'var(--ok, #10B981)' : 'var(--ink-muted)';
-      var stTxt = it.cred > 0.01 ? 'Com Saldo' : 'Empenhada';
+      var stCor, stTxt, ndDisp;
+      if(it.is_det){
+        stCor = "var(--primary, #3B82F6)";
+        stTxt = "🔄 Detalhada";
+        ndDisp = '<span class="pill-nd" style="background:rgba(59,130,246,0.12);color:#2563EB;font-weight:700;">' + bcmsEsc(it.nd_troca || it.nd) + '</span>';
+      } else if(it.cred > 0.01 && it.emp > 0.01){
+        stCor = "var(--gold, #F59E0B)";
+        stTxt = "Parcial";
+        ndDisp = bcmsEsc(it.nd) + ' <span class="tbl-om-sub">' + bcmsEsc((it.nd_desc || '').slice(0, 20)) + '</span>';
+      } else if(it.cred > 0.01){
+        stCor = "var(--ok, #10B981)";
+        stTxt = "Com Saldo";
+        ndDisp = bcmsEsc(it.nd) + ' <span class="tbl-om-sub">' + bcmsEsc((it.nd_desc || '').slice(0, 20)) + '</span>';
+      } else if(it.prov <= 0.01){
+        stCor = "var(--bad, #EF4444)";
+        stTxt = "Anulada";
+        ndDisp = bcmsEsc(it.nd) + ' <span class="tbl-om-sub">' + bcmsEsc((it.nd_desc || '').slice(0, 20)) + '</span>';
+      } else {
+        stCor = "var(--ink-muted)";
+        stTxt = "Empenhada";
+        ndDisp = bcmsEsc(it.nd) + ' <span class="tbl-om-sub">' + bcmsEsc((it.nd_desc || '').slice(0, 20)) + '</span>';
+      }
       h += '<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'' + (it.nc || '') + '\')" ' +
            'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();bcmsOpenNCModalManual(\'' + (it.nc || '') + '\');}" ' +
            'title="Clique para abrir a ficha cadastral completa desta NC">' +
@@ -6408,7 +6632,7 @@ function bcmsRenderCatrimani(pag){
            '<td><b class="nc-mono">' + (it.nc || '') + '</b></td>' +
            '<td><b>' + (it.ug || '') + '</b> <span class="tbl-om-sub">' + (it.ug_nome || '') + '</span></td>' +
            '<td><span class="pill-ptres">' + (it.acao || '') + '</span> · <span class="pill-pi">' + (it.pi || '') + '</span></td>' +
-           '<td>' + (it.nd || '') + ' <span class="tbl-om-sub">' + ((it.nd_desc || '').slice(0, 20)) + '</span></td>' +
+           '<td>' + ndDisp + '</td>' +
            '<td class="wrap-txt" title="' + (it.obj || '') + '">' + ((it.obj || '').slice(0, 55)) + '...</td>' +
            '<td class="num">' + bcmsFmtBRL(it.prov) + '</td>' +
            '<td class="num">' + bcmsFmtBRL(it.emp) + '</td>' +
@@ -6610,12 +6834,32 @@ function bcmsDetalheUG(codUg){
     h += '      <thead><tr><th>Emissão</th><th>Número NC</th><th>ND</th><th class="num">Recebido</th><th class="num">Empenhado</th><th class="num">Saldo Disp.</th><th>Status</th></tr></thead><tbody>';
     for(var mIdx = 0; mIdx < u.ncs.length; mIdx++){
       var nco = u.ncs[mIdx];
-      var sColor = nco.cred > 0.01 ? 'var(--ok, #10B981)' : 'var(--ink-muted)';
-      var sText = nco.cred > 0.01 ? 'Com Saldo' : 'Empenhada';
+      var sColor, sText, ndShow;
+      if(nco.is_det){
+        sColor = 'var(--primary, #3B82F6)';
+        sText = '🔄 Detalhada';
+        ndShow = nco.nd_troca || nco.nd;
+      } else if(nco.cred > 0.01 && nco.emp > 0.01){
+        sColor = 'var(--gold, #F59E0B)';
+        sText = 'Parcial';
+        ndShow = nco.nd || '—';
+      } else if(nco.cred > 0.01){
+        sColor = 'var(--ok, #10B981)';
+        sText = 'Com Saldo';
+        ndShow = nco.nd || '—';
+      } else if(nco.prov <= 0.01){
+        sColor = 'var(--bad, #EF4444)';
+        sText = 'Anulada';
+        ndShow = nco.nd || '—';
+      } else {
+        sColor = 'var(--ink-muted)';
+        sText = 'Empenhada';
+        ndShow = nco.nd || '—';
+      }
       h += '<tr class="tr-click" onclick="bcmsOpenNCModalManual(\'' + bcmsEsc(nco.nc) + '\')" title="Abrir ficha da NC ' + bcmsEsc(nco.nc) + '">' +
            '<td>' + bcmsEsc(nco.dia || '—') + '</td>' +
            '<td><b class="nc-mono" style="color:var(--primary-600);">' + bcmsEsc(nco.nc) + '</b></td>' +
-           '<td class="mono2">' + bcmsEsc(nco.nd || '—') + '</td>' +
+           '<td class="mono2">' + bcmsEsc(ndShow) + '</td>' +
            '<td class="num">' + bcmsFmtBRL(nco.prov) + '</td>' +
            '<td class="num">' + bcmsFmtBRL(nco.emp) + '</td>' +
            '<td class="num anchor" style="font-weight:700;">' + bcmsFmtBRL(nco.cred) + '</td>' +
@@ -6689,9 +6933,12 @@ function bcmsExportCatrimaniExcel(){
     '    <Cell><Data ss:Type="String">RECEBIDO (R$)</Data></Cell>\n' +
     '    <Cell><Data ss:Type="String">EMPENHADO (R$)</Data></Cell>\n' +
     '    <Cell><Data ss:Type="String">DISPONÍVEL (R$)</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">STATUS</Data></Cell>\n' +
     '   </Row>\n';
 
   list.forEach(function(it){
+    var ndCol = it.nd_troca ? (it.nd + ' (' + it.nd_troca + ')') : (it.nd || '');
+    var ndDescCol = it.is_det ? 'TRANSFERÊNCIA INTERNA ENTRE NDS' : (it.nd_desc || '');
     xml += '   <Row>\n' +
       '    <Cell><Data ss:Type="String">' + (it.dia || '') + '</Data></Cell>\n' +
       '    <Cell><Data ss:Type="String">' + (it.nc || '') + '</Data></Cell>\n' +
@@ -6700,12 +6947,13 @@ function bcmsExportCatrimaniExcel(){
       '    <Cell><Data ss:Type="String">' + (it.acao || '') + '</Data></Cell>\n' +
       '    <Cell><Data ss:Type="String">' + (it.pi || '') + '</Data></Cell>\n' +
       '    <Cell><Data ss:Type="String">' + (it.pi_nome || '') + '</Data></Cell>\n' +
-      '    <Cell><Data ss:Type="String">' + (it.nd || '') + '</Data></Cell>\n' +
-      '    <Cell><Data ss:Type="String">' + (it.nd_desc || '') + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + ndCol + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + ndDescCol + '</Data></Cell>\n' +
       '    <Cell><Data ss:Type="String">' + (it.obj || '') + '</Data></Cell>\n' +
       '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.prov || 0) + '</Data></Cell>\n' +
       '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.emp || 0) + '</Data></Cell>\n' +
       '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.cred || 0) + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + (it.status || '') + '</Data></Cell>\n' +
       '   </Row>\n';
   });
 
