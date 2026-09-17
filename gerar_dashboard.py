@@ -21,14 +21,14 @@ UNIDADES = [
 
 OMDS_COMPARATIVO = [
     {"sigla": "6º BEC", "nome": "6º Batalhão de Engenharia de Construção", "ogu": "160353", "fex": "167353", "logo": "6BEC.png", "accent": "#15803D", "key": "BEC6"},
-    {"sigla": "7º BIS", "nome": "Comando de Fronteira Roraima / 7º BIS", "ogu": "160352", "fex": "167352", "logo": "12RM.png", "accent": "#047857", "key": "BIS7"},
-    {"sigla": "1ª Bda Inf Sl", "nome": "Comando 1ª Brigada de Infantaria de Selva", "ogu": "160482", "fex": "167482", "logo": "12RM.png", "accent": "#1D4ED8", "key": "BDA1"},
-    {"sigla": "4º B Av Ex", "nome": "4º Batalhão de Aviação do Exército", "ogu": "160007", "fex": "167007", "logo": "12RM.png", "accent": "#D97706", "key": "BAV4"},
-    {"sigla": "1º B Log Sl", "nome": "1º Batalhão Logístico de Selva", "ogu": "160907", "fex": "167907", "logo": "12RM.png", "accent": "#B91C1C", "key": "BLOG1"},
+    {"sigla": "7º BIS", "nome": "Comando de Fronteira Roraima / 7º BIS", "ogu": "160352", "fex": "167352", "logo": "7BIS.png", "accent": "#047857", "key": "BIS7"},
+    {"sigla": "1ª Bda Inf Sl", "nome": "Comando 1ª Brigada de Infantaria de Selva", "ogu": "160482", "fex": "167482", "logo": "1BDA.png", "accent": "#1D4ED8", "key": "BDA1"},
+    {"sigla": "4º B Av Ex", "nome": "4º Batalhão de Aviação do Exército", "ogu": "160007", "fex": "167007", "logo": "4BAVEX.png", "accent": "#D97706", "key": "BAV4"},
+    {"sigla": "1º B Log Sl", "nome": "1º Batalhão Logístico de Selva", "ogu": "160907", "fex": "167907", "logo": "1BLOG.png", "accent": "#B91C1C", "key": "BLOG1"},
     {"sigla": "Pq R Mnt/12", "nome": "Parque Regional de Manutenção da 12ª RM", "ogu": "160021", "fex": "167021", "logo": "12RM.png", "accent": "#6D28D9", "key": "PQ12"},
     {"sigla": "1º BIS (AMV)", "nome": "1º Batalhão de Infantaria de Selva (Amv)", "ogu": "160006", "fex": "167006", "logo": "12RM.png", "accent": "#0F766E", "key": "BIS1"},
     {"sigla": "Cmdo 12ª RM", "nome": "Comando da 12ª Região Militar", "ogu": "160014", "fex": "167014", "logo": "12RM.png", "accent": "#991B1B", "key": "RM12"},
-    {"sigla": "Cmdo CMA", "nome": "Comando Militar da Amazônia", "ogu": "160016", "fex": "167016", "logo": "12RM.png", "accent": "#1E3A8A", "key": "CMA"}
+    {"sigla": "Cmdo CMA", "nome": "Comando Militar da Amazônia", "ogu": "160016", "fex": "167016", "logo": "CMA.png", "accent": "#1E3A8A", "key": "CMA"}
 ]
 
 UASG_TO_OMDS = {}
@@ -322,6 +322,21 @@ def etl(path):
         "160238": "BA AP LOG",
     }
 
+    logos_padrao_ugs = {
+        "160353": "6BEC.png",
+        "160352": "7BIS.png",
+        "160482": "1BDA.png",
+        "167482": "1BDA.png",
+        "160016": "CMA.png",
+        "160907": "1BLOG.png",
+        "160007": "4BAVEX.png",
+        "160014": "12RM.png",
+        "160021": "12RM.png",
+        "160006": "12RM.png",
+        "160329": "12RM.png",
+        "160238": "12RM.png",
+    }
+
     def get_val(row_tup, idx):
         return row_tup[idx] if idx is not None and 0 <= idx < len(row_tup) else None
 
@@ -437,7 +452,8 @@ def etl(path):
                 nom = nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}")
                 sigla_m = siglas_padrao_ugs.get(ug, ug)
                 catrimani_por_ug[ug] = {
-                    "cod": ug, "sigla": sigla_m, "nome": nom, "prov": 0.0, "conc": 0.0,
+                    "cod": ug, "sigla": sigla_m, "nome": nom, "logo": logos_padrao_ugs.get(ug, "12RM.png"),
+                    "prov": 0.0, "conc": 0.0,
                     "cred": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "count": 0,
                     "ncs": [], "nds": {}
                 }
@@ -2068,11 +2084,12 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     for u in por_ug:
         sem_cor = "var(--ok, #10B981)" if u["pct_emp"] >= 80.0 else ("var(--gold, #F59E0B)" if u["pct_emp"] >= 60.0 else "var(--bad, #EF4444)")
         sig_ug = u.get("sigla", u["cod"])
+        logo_ug = u.get("logo", "12RM.png")
         ug_rows.append(
             f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsDetalheUG(\'{esc(u["cod"])}\')" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsDetalheUG(\'{esc(u["cod"])}\');}}" '
             f'title="Clique para ver o detalhamento completo de dotações, empenhos e NCs de {esc(u["nome"])}">'
-            f'<td class="col-ug"><b style="font-size:0.8125rem;color:var(--primary);">{esc(sig_ug)}</b><span style="display:block;font-size:0.6875rem;color:var(--ink-muted);font-weight:normal;">UG {esc(u["cod"])}</span></td>'
+            f'<td class="col-ug"><div style="display:flex;align-items:center;gap:10px;"><img src="assets/logos/{logo_ug}" alt="" class="tbl-om-logo" onerror="this.style.display=\'none\'"><div><b style="font-size:0.8125rem;color:var(--primary);">{esc(sig_ug)}</b><span style="display:block;font-size:0.6875rem;color:var(--ink-muted);font-weight:normal;">UG {esc(u["cod"])}</span></div></div></td>'
             f'<td class="col-nome"><b>{esc(u["nome"])}</b></td>'
             f'<td class="num col-moeda">{esc(brl(u["prov"]))}</td>'
             f'<td class="num col-moeda" style="font-weight:700;">{esc(brl(u["emp"]))}</td>'
@@ -6495,11 +6512,13 @@ function bcmsDetalheUG(codUg){
   h += '      <span class="m-badge-op">🛡️ OPERAÇÃO CATRIMANI II · MULTI-UG</span>';
   h += '      ' + statusBadge;
   h += '    </div>';
-  h += '    <div class="m-title-row">';
-  h += '      <div class="m-nc-code-block">';
-  h += '        <h3 id="modal-title">UG ' + bcmsEsc(u.cod) + ' — ' + bcmsEsc(u.nome) + '</h3>';
-  h += '      </div>';
-  h += '      <button type="button" class="m-btn-pill" onclick="bcmsFiltrarPorUG(\'' + bcmsEsc(u.cod) + '\')" title="Ver no Extrato de Notas de Crédito">';
+    h += '    <div class="m-title-row">';
+    h += '      <div class="m-nc-code-block" style="display:flex;align-items:center;gap:12px;">';
+    h += '        <img src="assets/logos/' + (u.logo || '12RM.png') + '" alt="" style="width:40px;height:40px;object-fit:contain;" onerror="this.src=\'assets/logos/12RM.png\'">';
+    h += '        <div><h3 id="modal-title" style="margin:0;">UG ' + bcmsEsc(u.cod) + ' — ' + bcmsEsc(u.nome) + '</h3>';
+    h += '        <span style="font-size:0.8125rem;color:var(--ink-muted);">Ação 21EM · Operação Catrimani II · Exercício 2026</span></div>';
+    h += '      </div>';
+    h += '      <button type="button" class="m-btn-pill" onclick="bcmsFiltrarPorUG(\'' + bcmsEsc(u.cod) + '\')" title="Ver no Extrato de Notas de Crédito">';
   h += '        🔍 Filtrar no Extrato';
   h += '      </button>';
   h += '    </div>';
