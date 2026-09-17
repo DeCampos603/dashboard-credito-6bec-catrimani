@@ -25,8 +25,8 @@ OMDS_COMPARATIVO = [
     {"sigla": "1ª Bda Inf Sl", "nome": "Comando 1ª Brigada de Infantaria de Selva", "ogu": "160482", "fex": "167482", "logo": "1BDA.png", "accent": "#1D4ED8", "key": "BDA1"},
     {"sigla": "4º B Av Ex", "nome": "4º Batalhão de Aviação do Exército", "ogu": "160007", "fex": "167007", "logo": "4BAVEX.png", "accent": "#D97706", "key": "BAV4"},
     {"sigla": "1º B Log Sl", "nome": "1º Batalhão Logístico de Selva", "ogu": "160907", "fex": "167907", "logo": "1BLOG.png", "accent": "#B91C1C", "key": "BLOG1"},
-    {"sigla": "Pq R Mnt/12", "nome": "Parque Regional de Manutenção da 12ª RM", "ogu": "160021", "fex": "167021", "logo": "12RM.png", "accent": "#6D28D9", "key": "PQ12"},
-    {"sigla": "1º BIS (AMV)", "nome": "1º Batalhão de Infantaria de Selva (Amv)", "ogu": "160006", "fex": "167006", "logo": "12RM.png", "accent": "#0F766E", "key": "BIS1"},
+    {"sigla": "Pq R Mnt/12", "nome": "Parque Regional de Manutenção da 12ª RM", "ogu": "160021", "fex": "167021", "logo": "PQRMNT12.png", "accent": "#6D28D9", "key": "PQ12"},
+    {"sigla": "1º BIS (AMV)", "nome": "1º Batalhão de Infantaria de Selva (Amv)", "ogu": "160006", "fex": "167006", "logo": "1BIS.png", "accent": "#0F766E", "key": "BIS1"},
     {"sigla": "Cmdo 12ª RM", "nome": "Comando da 12ª Região Militar", "ogu": "160014", "fex": "167014", "logo": "12RM.png", "accent": "#991B1B", "key": "RM12"},
     {"sigla": "Cmdo CMA", "nome": "Comando Militar da Amazônia", "ogu": "160016", "fex": "167016", "logo": "CMA.png", "accent": "#1E3A8A", "key": "CMA"}
 ]
@@ -331,8 +331,8 @@ def etl(path):
         "160907": "1BLOG.png",
         "160007": "4BAVEX.png",
         "160014": "12RM.png",
-        "160021": "12RM.png",
-        "160006": "12RM.png",
+        "160021": "PQRMNT12.png",
+        "160006": "1BIS.png",
         "160329": "12RM.png",
         "160238": "12RM.png",
     }
