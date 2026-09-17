@@ -313,9 +313,9 @@ def carregar_dados(caminho_dados):
     c_ndd  = col("NATUREZA DESPESA - NOME", 9)
     c_obj  = col("NC - DESCRICAO", 10)
     c_op   = col("NC - OPERACAO (TIPO)", 11)
-    c_dia  = col("DIA EMISSAO NC", 13)
-    if c_dia == 0 and "NC - DIA EMISSAO" in col_map:
-        c_dia = col_map["NC - DIA EMISSAO"]
+    c_dia  = col("NC - DIA EMISSAO", 13)
+    if c_dia == 13 and "DIA EMISSAO NC" in col_map:
+        c_dia = col_map["DIA EMISSAO NC"]
 
     c_rec  = col("PROVISAO RECEBIDA", 14)
     c_cnc  = col("PROVISAO CONCEDIDA", 15)
