@@ -1567,7 +1567,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         tot_cred = ot.get("cred", 0.0)
         n_cel    = ot.get("n_ncs_cnt", ot.get("n_ncs", 0))
         if isinstance(n_cel, (set, list)): n_cel = len(n_cel)
-        
+
         # Princípio SIAFI / MCASP: Dotação Líquida = Provisão Recebida - Provisão Concedida
         prov_liq = max(0.0, tot_prov - tot_conc)
         exec_pct = pct(tot_emp, prov_liq if prov_liq > 0 else tot_prov)
@@ -1581,7 +1581,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             "pag": tot_pag, "cred": tot_cred, "exec_pct": exec_pct,
             "liq_pct": liq_pct, "pag_pct": pag_pct, "n_cel": n_cel
         })
-    
+
     cmd_prov_bruta = sum(x["prov"] for x in u_stats)
     cmd_conc = sum(x["conc"] for x in u_stats)
     cmd_prov = max(0.0, cmd_prov_bruta - cmd_conc)  # Dotação Líquida Consolidada do Comando
@@ -1593,9 +1593,9 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     cmd_exec_pct = pct(cmd_emp, cmd_prov)
     cmd_liq_pct = pct(cmd_liq, cmd_emp)
     cmd_pag_pct = pct(cmd_pag, cmd_liq)
-    
+
     rank_exec = sorted(u_stats, key=lambda x: x["exec_pct"], reverse=True)
-    
+
     podio_order = []
     if len(rank_exec) >= 2:
         podio_order.append((rank_exec[1], 2, "🥈 2º Lugar", "silver"))
@@ -1603,7 +1603,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         podio_order.append((rank_exec[0], 1, "🥇 1º Lugar", "gold"))
     if len(rank_exec) >= 3:
         podio_order.append((rank_exec[2], 3, "🥉 3º Lugar", "bronze"))
-    
+
     podio_cards = []
     for u, pos, badge, cls in podio_order:
         podio_cards.append(
@@ -1617,7 +1617,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             f'<button type="button" class="podium-btn" onclick="event.stopPropagation();' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'">Detalhar Unidade ›</button>'
             f'</div>'
         )
-    
+
     sub_prov_txt = f"Líquido: {brl(cmd_prov)} (Bruto {brl(cmd_prov_bruta)} − {brl(cmd_conc)} repasses)" if cmd_conc > 0 else "9 OMDS da Amazônia"
     kpis_cmd = (
         kpi_tile("Dotação Líquida (Comando)", brl(cmd_prov), sub_prov_txt, "prov", onclick="bcmsModalKpi('prov')") +
@@ -1625,10 +1625,10 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         kpi_tile("Liquidado (Comando)", brl(cmd_liq), f"{cmd_liq_pct:.1f}% do empenhado", "liq", onclick="bcmsModalKpi('liq')") +
         kpi_tile("Crédito Disponível", brl(cmd_cred), f"9 OMDS monitoradas", "pag", onclick="bcmsModalKpi('cred')")
     )
-    
+
     ch_cred = svg_comparativo_barras(u_stats, "cred", "Crédito Disponível por Unidade (R$)")
     ch_exec = svg_comparativo_exec(u_stats, cmd_exec_pct)
-    
+
     def _th_r(h, numc):
         cls = ' class="num"' if numc else ''
         return (f'<th{cls} tabindex="0" role="button" aria-sort="none" onclick="bcmsSort(this)" '
@@ -1650,7 +1650,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         _th_r("Células", True) +
         _th_r("Ação", False)
     )
-    
+
     body_rows = []
     for pos, u in enumerate(rank_exec, 1):
         medalha = "🥇 1º" if pos == 1 else ("🥈 2º" if pos == 2 else ("🥉 3º" if pos == 3 else f"{pos}º"))
@@ -1675,7 +1675,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             f'<td><button type="button" class="tbl-action-btn" onclick="event.stopPropagation();' + (f'trocaOMDSPorKey(\'{u["key"]}\')' if u["key"] == "BEC6" else f'bcmsDetalheOMDS(\'{u["key"]}\')') + f'">Detalhar ›</button></td>'
             f'</tr>'
         )
-    
+
     tfoot_tbl = (
         f'<tfoot><tr>'
         f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO (9 OMDS)</b></td>'
@@ -1692,7 +1692,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         f'<td>—</td>'
         f'</tr></tfoot>'
     )
-    
+
     tabela_ranking_html = (
         f'<div class="tbl-tools">'
         f'<label class="visually-hidden" for="q-tab-ranking-det">Buscar</label>'
@@ -1702,7 +1702,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         f'</div>'
         f'<div class="tbl-scroll" id="tab-ranking-det"><table class="det"><thead><tr>{ths}</tr></thead><tbody>{"".join(body_rows)}</tbody>{tfoot_tbl}</table></div>'
     )
-    
+
     hero_eq_cmd = (
         f'<div class="hero-eq-box"><span class="eq-tag">DOTAÇÃO LÍQUIDA</span><span class="eq-val num">{esc(brl(cmd_prov))}</span></div>'
         f'<span class="hero-eq-sign">−</span>'
@@ -1710,7 +1710,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         f'<span class="hero-eq-sign">=</span>'
         f'<div class="hero-eq-box eq-highlight"><span class="eq-tag">DISPONÍVEL COMANDO</span><span class="eq-val num eq-disp">{esc(brl(cmd_cred))}</span></div>'
     )
-    
+
     banner_auditoria_html = f"""
   <div class="audit-banner-card" style="background:linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.05));border:1px solid rgba(245, 158, 11, 0.35);border-radius:12px;padding:18px 24px;margin-bottom:24px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -1798,15 +1798,20 @@ UG_NOMES_PADRAO = {
 }
 
 # ---------------- nova aba: Histórico de Notas de Crédito ----------------
-def secao_historico_ncs(res, hist, data_str, periodo):
+def secao_historico_ncs(res, hist, data_str, periodo, catr=None):
     """Gera a aba consolidada 'Histórico de Notas de Crédito' do exercício corrente.
-    
+
     Traz todas as NCs emitidas e recebidas pelas OMDS no ano com 4 KPIs analíticos no topo,
     segmentadores multicritério (Período, Fonte, PTRES, Faixa de Saldo, Busca) e grid interativo
     ordenável com detalhamento completo via modal flutuante.
+
+    Quando `catr` (dados da Operação Catrimani) é informado, as NCs das UGs executoras que
+    ainda não estão em `res` são mescladas na mesma base, para que o filtro "Unidade" cubra
+    também as demais UGs da operação, e não apenas o 6º BEC.
     """
     posicao = periodo if periodo else (data_str[8:10] + "/" + data_str[5:7] + "/" + data_str[0:4])
     hoje = datetime.date.today()
+    codigos_alvo_hist = set(res.keys())
 
     # 1. Agrupa recebimentos por célula orçamentária para atribuir saldo às NCs
     cel_recs = {}
@@ -1983,6 +1988,95 @@ def secao_historico_ncs(res, hist, data_str, periodo):
         histdata[hid] = item_dict
         hist_list.append(item_dict)
 
+    # 3b. Mescla as NCs das demais UGs da Operação Catrimani (evita duplicar as do 6º BEC, já em `res`)
+    if catr:
+        ug_sigla_catr = {u["cod"]: u.get("sigla") or u["cod"] for u in catr.get("por_ug", [])}
+        ug_nome_catr = {u["cod"]: u.get("nome") or u["cod"] for u in catr.get("por_ug", [])}
+        for it in catr.get("linhas", []):
+            cod = it.get("ug")
+            if not cod or cod in codigos_alvo_hist:
+                continue
+            idx += 1
+            hid = f"c_{idx}"
+            dt = _dt_br(it.get("dia"))
+            dt_iso = dt.isoformat() if dt else ""
+            mes = f"{dt.month:02d}/{dt.year}" if dt else ""
+            tri = f"T{(dt.month-1)//3 + 1}" if dt else ""
+            if mes: meses_set.add(mes)
+            if it.get("acao"): ptres_set.add(it["acao"])
+            dias = (hoje - dt).days if dt else None
+
+            prov = it.get("prov", 0.0)
+            emp = it.get("emp", 0.0)
+            cred = it.get("cred", 0.0)
+            is_det = it.get("is_det", False)
+            status = it.get("status") or "Sem Saldo / Zerada"
+            status_slug = it.get("status_slug") or "zerada"
+            if status_slug == "canc":
+                faixa_saldo = "canc"
+            elif is_det:
+                faixa_saldo = "detalhada" if cred <= 0.01 else "saldo_pos"
+            elif status_slug == "exec":
+                faixa_saldo = "zerada"
+            elif status_slug in ("parcial", "disp"):
+                faixa_saldo = "saldo_pos"
+            else:
+                faixa_saldo = "zerada"
+
+            emit_cod = it.get("emit") or ""
+            emit_nome = it.get("emit_nome") or ""
+            if not emit_nome or emit_nome in ("-9", "NAO SE APLICA"):
+                emit_nome = UG_NOMES_PADRAO.get(emit_cod, f"UG {emit_cod}" if emit_cod else "Não informado")
+
+            linhas_it = it.get("linhas") or []
+            item_dict = {
+                "hid": hid,
+                "nc": it.get("nc"),
+                "dia": it.get("dia"),
+                "dt": dt_iso,
+                "mes": mes,
+                "tri": tri,
+                "dias": dias,
+                "emit_cod": emit_cod,
+                "emit_nome": emit_nome,
+                "fav_cod": cod,
+                "fav_nome": ug_nome_catr.get(cod, it.get("ug_nome") or f"UG {cod}"),
+                "om_sigla": ug_sigla_catr.get(cod, cod),
+                "ptres": it.get("acao") or "",
+                "acao": it.get("acao") or "",
+                "acao_desc": f"Ação Governamental {it['acao']}" if it.get("acao") else "",
+                "fonte": "OGU" if cod.startswith("160") else "FEx",
+                "nd": it.get("nd") or "",
+                "nd_desc": it.get("nd_desc") or "",
+                "nd_de": "",
+                "is_det": is_det,
+                "pi": it.get("pi") or "",
+                "pi_desc": it.get("pi_nome") or "",
+                "op": it.get("op") or "Descentralização de Crédito",
+                "obj": it.get("obj") or "(Sem descrição detalhada)",
+                "prov": round(prov, 2),
+                "bloq": 0.0,
+                "emp": round(emp, 2),
+                "liq": round(it.get("liq", 0.0), 2),
+                "pag": round(it.get("pag", 0.0), 2),
+                "cred": round(cred, 2),
+                "status": status,
+                "status_slug": status_slug,
+                "faixa_saldo": faixa_saldo,
+                "ano": str(dt.year) if dt else "2026",
+                "itens": [{
+                    "acao": L.get("acao", ""),
+                    "pi": L.get("pi", ""),
+                    "nd": L.get("nd", ""),
+                    "op": L.get("op", ""),
+                    "prov": round(L.get("prov", 0.0), 2),
+                    "emp": round(L.get("emp", 0.0), 2),
+                    "cred": round(L.get("cred", 0.0), 2),
+                } for L in linhas_it] if len(linhas_it) > 1 else []
+            }
+            histdata[hid] = item_dict
+            hist_list.append(item_dict)
+
     # Ordenação padrão: mais recentes primeiro (Data Decrescente)
     hist_list.sort(key=lambda x: (x["dt"] or "", x["cred"]), reverse=True)
 
@@ -2021,6 +2115,7 @@ def secao_historico_ncs(res, hist, data_str, periodo):
 
     om_unicas = sorted(list(set(it["om_sigla"] for it in hist_list if it.get("om_sigla"))))
     opt_oms = "".join(f'<option value="{esc(om)}">{esc(om)}</option>' for om in om_unicas)
+    n_ugs_hist = len(om_unicas)
 
     tools_hist_html = (
         f'<div class="tbl-tools">'
@@ -2129,7 +2224,7 @@ def secao_historico_ncs(res, hist, data_str, periodo):
   <div class="ranking-header-card" style="border-top-color:var(--primary-600);">
     <div class="rh-tag" style="color:var(--primary);">EXERCÍCIO FINANCEIRO CORRENTE · PAINEL ANALÍTICO CONSOLIDADO</div>
     <h2 class="rh-title">📜 Histórico Consolidado de Notas de Crédito (NC)</h2>
-    <p class="rh-desc">Repositório analítico de todas as Notas de Crédito recebidas no exercício pelo 6º Batalhão de Engenharia de Construção (UASGs 160353 OGU e 167353 FEx). Pesquise por termos da justificativa, combine filtros por fonte, ação e período, ou clique em qualquer linha para inspecionar o detalhamento cadastral e financeiro completo no modal.</p>
+    <p class="rh-desc">Repositório analítico de todas as Notas de Crédito recebidas no exercício pelo 6º Batalhão de Engenharia de Construção (UASGs 160353 OGU e 167353 FEx) e pelas demais Unidades Gestoras executoras da Operação Catrimani II. Pesquise por termos da justificativa, combine filtros por unidade, fonte, ação e período, ou clique em qualquer linha para inspecionar o detalhamento cadastral e financeiro completo no modal.</p>
   </div>
 
   <section class="sec">
@@ -2139,7 +2234,7 @@ def secao_historico_ncs(res, hist, data_str, periodo):
 
   <section class="sec">
     <div class="eyebrow">Base Completa de Notas de Crédito do Comando</div>
-    <p class="sec-nota">Relação consolidada de <b>todas as Notas de Crédito</b> das 6 OMDS (12 UASGs de OGU e FEx). Utilize a busca rápida e os filtros seletivos para auditar lançamentos. <b>Clique em uma linha</b> para abrir a ficha completa.</p>
+    <p class="sec-nota">Relação consolidada de <b>todas as Notas de Crédito</b> do 6º BEC e da Operação Catrimani II ({n_ugs_hist} UGs no total, OGU e FEx). Utilize a busca rápida, o filtro por Unidade e os demais filtros seletivos para auditar lançamentos. <b>Clique em uma linha</b> para abrir a ficha completa.</p>
     {tools_hist_html}
     {table_hist_html}
   </section>
@@ -2419,7 +2514,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
 
 
 def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_data=None, omds_totais=None):
-    hist_frag, histdata = secao_historico_ncs(res, hist, data_str, periodo)
+    hist_frag, histdata = secao_historico_ncs(res, hist, data_str, periodo, catrimani_data)
 
     frags, CEL, NCD, DAY, TELA = [], {}, {}, {}, {}
     for u in UNIDADES:
@@ -2430,7 +2525,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
         u_hist_items = [it for it in histdata["items"] if it["fav_cod"] in (u["ogu"], u["fex"])]
         frag, cel, ncd, day, tela = conteudo_unidade(res, hist_u, data_str, periodo, u, u_hist_items)
         frags.append(frag); CEL.update(cel); NCD.update(ncd); DAY.update(day); TELA.update(tela)
-    
+
     ranking_frag = secao_comparativo_omds(omds_totais, hist, data_str, periodo) if omds_totais else ""
     if ranking_frag:
         frags.append(ranking_frag)
@@ -5365,7 +5460,7 @@ function bcmsCel(row){
     if(n[4]) meta.push('Emitente '+bcmsEsc(n[4]));
     if(n[1]) meta.push(bcmsEsc(n[1]));
     if(n[5]) meta.push('em '+bcmsEsc(n[5]));
-    
+
     var linkNC = '';
     if(typeof HISTDATA !== 'undefined' && HISTDATA && HISTDATA.items){
       for(var k=0; k<HISTDATA.items.length; k++){
@@ -6151,8 +6246,8 @@ function bcmsCopiarNC(ncNumero, btn){
     ta.value = ncNumero;
     document.body.appendChild(ta);
     ta.select();
-    try { 
-      document.execCommand('copy'); 
+    try {
+      document.execCommand('copy');
       bcmsToast('📋 Nota de Crédito ' + ncNumero + ' copiada!');
       if(btn){
         var old = btn.innerHTML;
@@ -6181,8 +6276,8 @@ function bcmsCopiarTexto(btn){
     ta.value = txt;
     document.body.appendChild(ta);
     ta.select();
-    try { 
-      document.execCommand('copy'); 
+    try {
+      document.execCommand('copy');
       bcmsToast('📋 Finalidade copiada!');
       var old = btn.innerHTML;
       btn.innerHTML = '✓ Copiado!';
