@@ -48,8 +48,8 @@ except Exception:
 warnings.simplefilter("ignore")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SRC = os.path.join(SCRIPT_DIR, "data", "CRÉDITO DISP 160353.xlsx")
-DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTVtnLCf2tvVO1-PFklLro4Y-ijBqw9h3psRi2y3Q69_1TSX75OPmph7yPK3zmANA/pub?gid=991377463&single=true&output=csv"
+HISTFILE = os.path.join(SCRIPT_DIR, "data", "history.json")
+REPASSADORES_CONHECIDOS = {"160539": "COTER", "160504": "COEx", "160073": "DGO"}
 
 SMTP_HOST       = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT       = int(os.getenv("SMTP_PORT", "587"))
@@ -200,10 +200,13 @@ def clean_str(v):
 
 
 def baixar(target=None):
+    """Baixa a fonte do dia. Sem fonte ou com falha, FALHA: nunca cai para planilha antiga."""
     if target and os.path.exists(target):
         return target
 
-    url = target if (target and target.startswith(("http://", "https://"))) else (os.environ.get("SHEETS_CSV_URL") or DEFAULT_CSV_URL)
+    url = target if (target and target.startswith(("http://", "https://"))) else os.environ.get("SHEETS_CSV_URL")
+    if not url:
+        raise SystemExit("Sem fonte de dados: defina SHEETS_CSV_URL (ou --url / --local). Nada foi enviado.")
 
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (relatorio-6bec)"})
     ext = ".csv" if "output=csv" in url else ".xlsx"
@@ -211,17 +214,11 @@ def baixar(target=None):
     try:
         with urllib.request.urlopen(req, timeout=90) as r, open(tmp, "wb") as f:
             f.write(r.read())
-        if os.path.getsize(tmp) < 500:
-            if os.path.exists(DEFAULT_SRC):
-                print(f"[AVISO] Download muito pequeno. Usando fallback local: {DEFAULT_SRC}")
-                return DEFAULT_SRC
-            raise SystemExit("Download muito pequeno — verifique a URL da planilha.")
-        return tmp
     except Exception as e:
-        if os.path.exists(DEFAULT_SRC):
-            print(f"[AVISO] Falha no download ({e}). Usando fallback local: {DEFAULT_SRC}")
-            return DEFAULT_SRC
-        raise
+        raise SystemExit(f"Falha no download da fonte ({e}). Nada foi enviado.")
+    if os.path.getsize(tmp) < 500:
+        raise SystemExit("Download muito pequeno — verifique a URL da planilha. Nada foi enviado.")
+    return tmp
 
 
 def ler_linhas(path):
@@ -263,6 +260,33 @@ def obter_marco_atual(data_ref=None):
     mes = data_ref.month
     bimestre = (mes + 1) // 2
     return METAS_BIMESTRAIS.get(bimestre, {'marco': 'VIG', 'emp': 80.0, 'liq': 65.0})
+
+
+def carregar_posicao_dashboard(caminho, hoje):
+    """Reaproveita o ETL do dashboard: prazos de TODAS as UG da 21EM e a posição real dos dados."""
+    sys.path.insert(0, SCRIPT_DIR)
+    import gerar_dashboard
+    return gerar_dashboard.etl(caminho, hoje=hoje)[3]
+
+
+def desde_quando_sem_atualizar(posicao, hoje, histfile=None):
+    """Data da 1ª execução consecutiva com a mesma posição, se já houve execução anterior com ela."""
+    import json
+    histfile = histfile or HISTFILE
+    try:
+        with open(histfile, "r", encoding="utf-8") as f:
+            hist = json.load(f)
+    except Exception:
+        return None
+    desde = None
+    for h in sorted(hist, key=lambda x: x.get("data", ""), reverse=True):
+        if h.get("data", "") >= hoje.isoformat():
+            continue
+        if h.get("posicao") == posicao:
+            desde = h["data"]
+        else:
+            break
+    return desde
 
 
 def carregar_dados(caminho_dados):
@@ -379,7 +403,7 @@ def carregar_dados(caminho_dados):
             continue
 
         row_str = f"{acao} {pi} {pid} {obj}".upper()
-        is_21em = (acao == '21EM' or 'CATRIMANI' in row_str)
+        is_21em = (acao == '21EM')
 
         # Processamento 6º BEC (OGU e FEx)
         if ug in ('160353', '167353'):
@@ -550,11 +574,23 @@ def gerar_texto_mensagem(res):
 
     m = []
 
+    dash = res.get('dash') or {}
+    pos_iso = dash.get('posicao') or ""
+    pos_txt = f"{pos_iso[8:10]}/{pos_iso[5:7]}/{pos_iso[0:4]}" if len(pos_iso) >= 10 else "indisponível"
+    desde = res.get('sem_atualizacao_desde')
+    if desde:
+        m.append("📋 *RELATÓRIO DIÁRIO DE EXECUÇÃO ORÇAMENTÁRIA & CRÉDITO*")
+        m.append("🎖️ *Operação Catrimani II · Ação 21EM*")
+        m.append(f"⚠️ *Sem atualização do Tesouro Gerencial desde {desde[8:10]}/{desde[5:7]}* (posição dos dados: {pos_txt}).")
+        m.append("Os números não foram repetidos para não induzir a leitura de movimento inexistente.")
+        m.append(f"👉 {DASHBOARD_LINK}")
+        return "\n".join(m)
+
     # 1. Cabeçalho Militar
     m.append("📋 *RELATÓRIO DIÁRIO DE EXECUÇÃO ORÇAMENTÁRIA & CRÉDITO*")
     m.append("🏛️ *6º Batalhão de Engenharia de Construção (6º BEC)*")
     m.append("🎖️ *Comitê de Acompanhamento da Operação Catrimani II*")
-    m.append(f"⏱ *Posição:* {hoje_str} às {hora_str} (Horário de Brasília) · *Marco Vigente:* {marco['marco']}")
+    m.append(f"⏱ *Emitido em:* {hoje_str} às {hora_str} (Horário de Brasília) · *Dados do TG até:* {pos_txt} · *Marco Vigente:* {marco['marco']}")
     m.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     m.append("")
 
@@ -664,7 +700,10 @@ def gerar_texto_mensagem(res):
     m.append(f"• *Empenho Global da Operação:* *{fmt_brl(c_tot['emp'])}* (Execução: *{fmt_pct(c_tot['pct_emp'])}*)")
     m.append(f"• *Crédito Disponível na Catrimani:* *{fmt_brl(c_tot['cred'])}* ({fmt_pct(c_tot['pct_cred'])} livre)")
     m.append(f"• *Liquidações Realizadas:* *{fmt_brl(c_tot['liq'])}* | *Pagamentos:* *{fmt_brl(c_tot['pag'])}*")
-    m.append(f"• *Órgãos Repassadores dos Créditos:* *COTER (UG 160539)* e *COEx (UG 160504)*")
+    emitentes = sorted({l['emit'] for l in dash.get('linhas', []) if l.get('emit') and not l.get('is_det') and l.get('prov', 0) > 0.005})
+    rep_itens = [f"*{REPASSADORES_CONHECIDOS.get(e, 'UG')} (UG {e})*" for e in emitentes]
+    rep_txt = (", ".join(rep_itens[:-1]) + " e " + rep_itens[-1]) if len(rep_itens) > 1 else (rep_itens[0] if rep_itens else "*não identificados na fonte*")
+    m.append(f"• *Órgãos Repassadores dos Créditos (emitentes das NC na fonte):* {rep_txt}")
     m.append("• *TC Int Saldanha - D10*")
     m.append("")
     m.append("📊 *Quadro Executivo Consolidado Multi-UGs (Ação 21EM):*")
@@ -680,13 +719,43 @@ def gerar_texto_mensagem(res):
     m.append("────────────────────────────────────────")
     m.append("")
 
+    # 5b. Prazos de empenho de todas as UG (mesma regra do dashboard: regras_nc.py)
+    pz = dash.get('prazos')
+    if pz:
+        m.append("⏳ *PRAZOS DE EMPENHO — TODAS AS UG DA AÇÃO 21EM*")
+        m.append("_Saldo por NC é estimado (o TG não vincula empenho a NC); o saldo exato é o da célula UG · PI · ND._")
+        m.append(f"• 🔴 *Vencido:* *{fmt_brl(pz['total'].get('VENCIDO', 0.0))}*")
+        m.append(f"• 🟠 *Vence em até 7 dias:* *{fmt_brl(pz['total'].get('VENCE EM ≤7 DIAS', 0.0))}*")
+        m.append(f"• 🟡 *Vence em até 30 dias:* {fmt_brl(pz['total'].get('VENCE EM ≤30 DIAS', 0.0))}")
+        m.append(f"• 🔵 *Empenho imediato:* {fmt_brl(pz['total'].get('EMPENHO IMEDIATO', 0.0))} · ⚪ *Sem prazo na NC:* {fmt_brl(pz['total'].get('SEM PRAZO NA NC', 0.0))}")
+        por_ug_nome = {u['cod']: u for u in dash.get('por_ug', [])}
+        urgentes = {}
+        for it in dash.get('linhas', []):
+            if it['cred'] > SALDO_MINIMO and it.get('situacao_prazo') in ('VENCE EM ≤7 DIAS',):
+                urgentes.setdefault(it['ug'], []).append(it)
+        if urgentes:
+            m.append("")
+            m.append("🚨 *Vence nos próximos 7 dias (por UG):*")
+            ugs_urg = sorted(urgentes.items(), key=lambda kv: -sum(i['cred'] for i in kv[1]))
+            for idx, (ug_u, itens_u) in enumerate(ugs_urg):
+                pre = "└" if idx == len(ugs_urg) - 1 else "├"
+                nome_u = por_ug_nome.get(ug_u, {}).get('sigla') or SIGLAS_MILITARES_UGS.get(ug_u, f"UG {ug_u}")
+                m.append(f" {pre} *{nome_u}* (UG {ug_u}) — *{fmt_brl(sum(i['cred'] for i in itens_u))}*")
+                for it in sorted(itens_u, key=lambda i: (i.get('dias_para_prazo') if i.get('dias_para_prazo') is not None else 999, -i['cred']))[:5]:
+                    pz_d = it.get('prazo') or ""
+                    dd = f"{pz_d[8:10]}/{pz_d[5:7]}" if pz_d else "—"
+                    m.append(f"   ↳ NC {it['nc'][-6:]} · ND {it['nd']} · {fmt_brl(it['cred'])} · até {dd} ({it.get('dias_para_prazo')}d)")
+        m.append("────────────────────────────────────────")
+        m.append("")
+
     # 6. Insights para Despacho Executivo
     s_nd30 = sum(c['cred'] for c in cels_21em if "339030" in c['nd'])
     s_nd39 = sum(c['cred'] for c in cels_21em if "339039" in c['nd'])
     m.append("💡 *5. INSIGHTS PARA DESPACHO EXECUTIVO (OD / FISCAL ADM)*")
-    m.append(f"• *Ação 21EM (Catrimani):* Saldo livre de *{fmt_brl(saldo_catr_6bec)}* concentrado principalmente em Material de Consumo (ND 30: {fmt_brl(s_nd30)}) e Serviços de Terceiros (ND 39: {fmt_brl(s_nd39)}), assegurando pronta resposta logística e engenharia de pistas.")
+    m.append(f"• *Ação 21EM (Catrimani):* Saldo livre de *{fmt_brl(saldo_catr_6bec)}* no 6º BEC, dos quais Material de Consumo (ND 30): {fmt_brl(s_nd30)} e Serviços de Terceiros (ND 39): {fmt_brl(s_nd39)}.")
     m.append(f"• *Execução Global 6º BEC:* O Batalhão registra *{fmt_pct(t_bec['pct_emp'])}* de empenho ({fmt_brl(t_bec['emp'])}), mantendo alta velocidade de processamento com {fmt_brl(t_bec['liq'])} já liquidados.")
-    m.append(f"• *Meta Bimestral:* Execução amplamente superior à meta do marco {marco['marco']} ({marco['emp']:.0f}% de empenho), sem risco de glosa ou retenção de recursos.")
+    rel_meta = "acima" if t_bec['pct_emp'] >= marco['emp'] else "abaixo"
+    m.append(f"• *Meta do marco {marco['marco']}:* empenho de {fmt_pct(t_bec['pct_emp'])} do 6º BEC, {rel_meta} da meta de {marco['emp']:.0f}%.")
     m.append("────────────────────────────────────────")
     m.append("")
 
@@ -759,11 +828,14 @@ def main():
     parser.add_argument("--save-txt", default=None, help="Salva o texto gerado em um arquivo TXT")
     args = parser.parse_args()
 
-    target = args.local or args.url or os.environ.get("SHEETS_CSV_URL") or DEFAULT_CSV_URL
+    target = args.local or args.url or os.environ.get("SHEETS_CSV_URL")
     caminho_dados = args.local if (args.local and os.path.exists(args.local)) else baixar(target)
     print(f"Lendo base de dados: {caminho_dados}...")
 
+    hoje = obter_horario_brasilia().date()
     res = carregar_dados(caminho_dados)
+    res['dash'] = carregar_posicao_dashboard(caminho_dados, hoje)
+    res['sem_atualizacao_desde'] = desde_quando_sem_atualizar(res['dash'].get('posicao'), hoje)
     texto = gerar_texto_mensagem(res)
 
     if args.save_txt:

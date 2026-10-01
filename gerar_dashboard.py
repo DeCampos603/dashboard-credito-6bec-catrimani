@@ -6,13 +6,15 @@ Acompanhamento Orçamentário Multi-UGs da Ação Governamental 21EM (Operação
 
 - Lê o export do Tesouro Gerencial 'CRÉDITO DISP 160353.xlsx'.
 - Detalhamento integral do 6º BEC (160353 / 167353) em par OGU/FEx.
-- Aba dedicada exclusiva para a Operação Catrimani II com as 10 UGs executoras.
+- Aba dedicada exclusiva para a Operação Catrimani II (só a Ação 21EM) com as UGs executoras presentes na fonte.
 - Validação anti-falha: Crédito Disponível = Recebido − Concedido − Empenhado.
 - Escreve site/index.html (autocontido: CSS Moderno + Google Fonts + SVG + Tabela + Excel) e site/data/history.json.
 """
 import os, sys, json, argparse, datetime, urllib.request, tempfile, html, math, re, shutil
 import unicodedata, csv
 import openpyxl
+import regras_nc
+import analises_d10
 
 HDR_ROW, DATA_ROW = 8, 9
 UNIDADES = [
@@ -42,12 +44,12 @@ def _par(u):
 ALVOS = [p for u in UNIDADES for p in _par(u)]
 FONTE_CURTA = {"160353": "160", "167353": "167"}
 DEFAULT_FILE_ID = None
-DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTVtnLCf2tvVO1-PFklLro4Y-ijBqw9h3psRi2y3Q69_1TSX75OPmph7yPK3zmANA/pub?gid=991377463&single=true&output=csv"
+# PIs da Operação Catrimani II na Ação 21EM (OCS90001002 = DGO). Consulta sempre pelos três.
+PIS_CATRIMANI = {"OCS90001000", "OCS90001001", "OCS90001002"}
 HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(HERE, "site")
 DATA = os.path.join(HERE, "data")
 HISTFILE = os.path.join(DATA, "history.json")
-DEFAULT_SRC = os.path.join(DATA, "CRÉDITO DISP 160353.xlsx")
 
 # ---------------- leitura ----------------
 def norm(s):
@@ -75,13 +77,20 @@ def disp(v):
     return "" if s in ("-9", "NAO SE APLICA", "NÃO SE APLICA") else s
 
 def baixar(target=None):
+    """Baixa a fonte do dia. Sem fonte ou com falha, o job FALHA: o site do dia anterior continua no ar.
+
+    Nunca há fallback para planilha antiga — isso já publicou a posição de 11/09 como se fosse de 17/09 e 27/09.
+    """
     if target and os.path.exists(target):
         return target
 
-    url = target if (target and target.startswith(("http://", "https://"))) else (os.environ.get("SHEETS_CSV_URL") or DEFAULT_CSV_URL)
+    url = target if (target and target.startswith(("http://", "https://"))) else os.environ.get("SHEETS_CSV_URL")
 
     if target and not target.startswith(("http://", "https://")) and len(target) > 15 and not os.path.exists(target):
         url = f"https://docs.google.com/spreadsheets/d/{target}/export?format=xlsx"
+
+    if not url:
+        raise SystemExit("Sem fonte de dados: defina SHEETS_CSV_URL (ou DRIVE_FILE_ID, --url, --local). Abortado sem publicar.")
 
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (dashboard-6bec)"})
     ext = ".csv" if "output=csv" in url else ".xlsx"
@@ -89,17 +98,11 @@ def baixar(target=None):
     try:
         with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
             f.write(r.read())
-        if os.path.getsize(tmp) < 500:
-            if os.path.exists(DEFAULT_SRC):
-                print(f"[AVISO] Download pequeno ({os.path.getsize(tmp)} bytes). Usando fallback: {DEFAULT_SRC}")
-                return DEFAULT_SRC
-            raise SystemExit("Download muito pequeno — verifique o link público da planilha.")
-        return tmp
     except Exception as e:
-        if os.path.exists(DEFAULT_SRC):
-            print(f"[AVISO] Falha no download ({e}). Usando fallback: {DEFAULT_SRC}")
-            return DEFAULT_SRC
-        raise
+        raise SystemExit(f"Falha no download da fonte ({e}). Abortado sem publicar.")
+    if os.path.getsize(tmp) < 500:
+        raise SystemExit(f"Download muito pequeno ({os.path.getsize(tmp)} bytes) — verifique o link público da planilha. Abortado sem publicar.")
+    return tmp
 
 def ler_linhas(path):
     is_csv = str(path).lower().endswith(".csv")
@@ -140,6 +143,20 @@ def obter_horario_brasilia():
     except Exception:
         tz_br = datetime.timezone(datetime.timedelta(hours=-3))
         return datetime.datetime.now(tz_br)
+
+POSICAO_DADOS = ""   # ISO da posição dos dados (maior data de NC lançada); preenchida em main()
+DATA_EXEC = ""       # ISO da data da execução
+
+def txt_defasagem(curto=False):
+    """Texto da defasagem calculado da posição real dos dados — nunca um '~24h' fixo."""
+    if not POSICAO_DADOS:
+        return "Posição dos dados indisponível"
+    pos = datetime.date.fromisoformat(POSICAO_DADOS)
+    ref = datetime.date.fromisoformat(DATA_EXEC) if DATA_EXEC else obter_horario_brasilia().date()
+    dias = (ref - pos).days
+    sufixo = "hoje" if dias <= 0 else (f"{dias} dia" if dias == 1 else f"{dias} dias")
+    pre = "Dados até" if curto else "Dados do Tesouro Gerencial até"
+    return f"{pre} {pos.strftime('%d/%m/%Y')} ({sufixo})"
 
 def _dt_br(s):
     if not s:
@@ -218,7 +235,32 @@ def anotar_trocas_nd(res):
                             L["nc_origem"] = {"nc": orig["nc"], "obj": orig["obj"], "dia": orig["dia"],
                                               "emit": orig["emit"], "op": orig["op"]}
 
-def etl(path):
+def verificar_integridade(catr, tol=0.05):
+    """Invariantes da Ação 21EM. Se algum falhar, o selo do rodapé fica vermelho e a publicação é bloqueada."""
+    falhas = []
+    for u in catr["por_ug"]:
+        d = u["prov"] - u["conc"] - u["emp"] - u["cred"]
+        if abs(d) > tol:
+            falhas.append(f"UG {u['cod']}: Recebido − Concedido − Empenhado difere do Disponível em {d:.2f}")
+    for u in catr["por_ug"]:
+        exato = {n["nd"]: n["cred"] for n in u["nds_list"]}
+        atrib = {}
+        for n in u["ncs"]:
+            atrib[n["nd"]] = atrib.get(n["nd"], 0.0) + n["cred"]
+        for nd, v in exato.items():
+            if abs(v - atrib.get(nd, 0.0)) >= 0.01:
+                falhas.append(f"UG {u['cod']} ND {nd}: saldo das NCs ({atrib.get(nd, 0.0):.2f}) difere do saldo da célula ({v:.2f})")
+    if abs(sum(u["cred"] for u in catr["por_ug"]) - catr["totais"]["cred"]) > tol:
+        falhas.append("Soma do disponível por UG difere do total da operação")
+    chaves = [l["chave"] for l in catr["linhas"]]
+    if len(chaves) != len(set(chaves)):
+        falhas.append("Chave nc|ug|nd duplicada")
+    if any(l["acao"] != "21EM" for l in catr["linhas"]):
+        falhas.append("Linha fora da Ação 21EM nos totais")
+    return {"ok": not falhas, "falhas": falhas[:20], "n_ug": len(catr["por_ug"]), "posicao": catr.get("posicao", "")}
+
+def etl(path, hoje=None):
+    hoje = hoje or obter_horario_brasilia().date()
     all_rows = list(ler_linhas(path))
     if not all_rows:
         raise SystemExit(f"Arquivo vazio ou ilegível: {path}")
@@ -299,7 +341,7 @@ def etl(path):
             "key": u["key"], "sigla": u["sigla"], "nome": u["nome"], "logo": u["logo"],
             "accent": u["accent"], "ogu": u["ogu"], "fex": u["fex"],
             "prov": 0.0, "conc": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0, "cred": 0.0,
-            "n_linhas": 0, "n_ncs": set()
+            "n_linhas": 0, "n_ncs": set(), "acoes": {}, "repasse_omds": 0.0
         } for u in OMDS_COMPARATIVO
     }
 
@@ -310,6 +352,9 @@ def etl(path):
     catrimani_celulas = {}
     catrimani_ncs_map = {}
     catrimani_linhas = []
+    catrimani_correlatos = {}
+    alertas_pi = []
+    cred_por_pi = {}
 
     nomes_padrao_ugs = {
         "160352": "CMDO FRON RR / 7º BIS",
@@ -414,6 +459,10 @@ def etl(path):
             ot["liq"]  += liq
             ot["pag"]  += pag
             ot["n_linhas"] += 1
+            if acao:
+                ot["acoes"][acao] = ot["acoes"].get(acao, 0.0) + (prov - conc)
+            if is_nc and emit in ("160014", "167014") and u_info["key"] != "RM12":
+                omds_totais["RM12"]["repasse_omds"] += prov
             if nc and nc not in ("-9", "NAO SE APLICA", "NÃO SE APLICA"):
                 ot["n_ncs"].add(nc)
 
@@ -449,15 +498,31 @@ def etl(path):
                 cel["ncs"].append(dict(nc=nc, dia=dia, emit=emit, emit_nome=emit_nome, op=op,
                                        prov=prov, conc=conc, cred=cred, emp=emp, liq=liq, pag=pag, obj=obj))
 
-        # 2. Operação Catrimani (Ação 21EM ou texto Catrimani)
+        # 2. Operação Catrimani — SÓ a Ação 21EM entra nos totais. Linhas de outras Ações que citam
+        # "CATRIMANI" no objeto (diárias, PNR funcional) vão para o quadro de correlatos, que não soma.
         row_full = f"{acao} {pi} {pi_nome} {obj}".upper()
-        if acao == "21EM" or "CATRIMANI" in row_full:
+        eh_21em = (acao == "21EM")
+        if not eh_21em and "CATRIMANI" in row_full and is_nc:
+            k_cor = (ug, acao, pi, nd)
+            cor = catrimani_correlatos.setdefault(k_cor, {
+                "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}"), "acao": acao, "pi": pi, "nd": nd,
+                "nd_desc": nd_nome, "prov": 0.0, "conc": 0.0, "emp": 0.0, "cred": 0.0, "ncs": []})
+            cor["prov"] += prov; cor["conc"] += conc; cor["emp"] += emp; cor["cred"] += cred
+            if nc and nc not in [x["nc"] for x in cor["ncs"]]:
+                cor["ncs"].append({"nc": nc, "dia": dia, "emit": emit, "obj": obj, "prov": prov - conc})
+        if eh_21em:
             has_fin = any(abs(v) > 0.005 for v in [prov, conc, cred, emp, liq, pag])
             is_nc = bool(nc and nc not in ("-9", "NAO SE APLICA", "NÃO SE APLICA"))
 
             # Descarta linhas puramente 'fantasmas' do relatório do Tesouro (sem NC e com tudo zerado)
             if not has_fin and not is_nc:
                 continue
+
+            if pi and pi not in PIS_CATRIMANI and has_fin:
+                msg_pi = f"PI novo na 21EM: {pi} (UG {ug}) — incluir em PIS_CATRIMANI se for da operação"
+                if msg_pi not in alertas_pi:
+                    alertas_pi.append(msg_pi)
+            cred_por_pi[pi] = cred_por_pi.get(pi, 0.0) + cred
 
             catrimani_totais["prov"] += prov
             catrimani_totais["conc"] += conc
@@ -508,14 +573,14 @@ def etl(path):
 
             # Linhas com Nota de Crédito real compõem o Extrato de NCs
             if is_nc:
-                nc_map_key = (nc, ug)
+                nc_map_key = (nc, ug, nd)
                 op_up = (op or "").upper()
                 prov_liq = prov - conc
                 is_det = ("DETALHAMENTO" in op_up) or (emit == ug and abs(prov_liq) < 0.01)
 
                 if nc_map_key not in catrimani_ncs_map:
                     catrimani_ncs_map[nc_map_key] = {
-                        "nc": nc, "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}"),
+                        "nc": nc, "chave": f"{nc}|{ug}|{nd}", "dia": dia, "ug": ug, "ug_nome": nomes_padrao_ugs.get(ug, fav_nome or f"UG {ug}"),
                         "emit": emit, "emit_nome": emit_nome, "acao": acao, "pi": pi, "pi_nome": pi_nome,
                         "nd": nd, "nd_desc": nd_nome, "op": op, "obj": obj,
                         "linhas": [], "prov": 0.0, "cred_calc": 0.0, "emp": 0.0, "liq": 0.0, "pag": 0.0,
@@ -562,7 +627,9 @@ def etl(path):
         if d["emp"] < -0.01:
             alertas.append(f"{d['nome']}: Empenhado negativo ({d['emp']:.2f}).")
 
-    # 3. Conciliação FIFO das Notas de Crédito da Operação Catrimani (Cell-Level Attribution)
+    # 3. Rateio cronológico do saldo da célula entre as NCs da Operação Catrimani.
+    # O Tesouro Gerencial NÃO vincula empenho a NC: o saldo exato é o da célula UG · PI · ND.
+    # O saldo por NC é ESTIMADO — o saldo remanescente da célula é atribuído às NCs mais recentes dela.
     for cel_key, c in catrimani_celulas.items():
         saldo_cel = c["cred"]
         recs_sorted = sorted(c["recs"], key=lambda x: _dt_br(x[2]), reverse=True)
@@ -574,6 +641,10 @@ def etl(path):
             catrimani_ncs_map[nc_key]["cred_calc"] += atribuido
             restante -= atribuido
 
+    por_nc_ug = {}
+    for key, it in catrimani_ncs_map.items():
+        por_nc_ug.setdefault((it["nc"], it["ug"]), []).append(it)
+
     reconciled_catr = []
     for key, it in catrimani_ncs_map.items():
         prov = it["prov"]
@@ -581,16 +652,16 @@ def etl(path):
         is_det = it["is_det"]
 
         if is_det:
+            # Mantém o saldo atribuído (não zera): o teste de fechamento acusa qualquer perda.
             it["emp"] = 0.0
-            it["cred"] = 0.0
+            it["cred"] = cred
             it["status"] = "Detalhamento de ND"
             it["status_slug"] = "detalhada"
-            nd_orig = [l["nd"] for l in it["linhas"] if l["cred"] < -0.01]
-            nd_dest = [l["nd"] for l in it["linhas"] if l["cred"] > 0.01]
-            val_troca = sum(abs(l["cred"]) for l in it["linhas"] if l["cred"] > 0.01)
-            if nd_orig and nd_dest:
-                it["nd_troca"] = f"{nd_orig[0]} → {nd_dest[0]}"
-                it["nd"] = nd_dest[0]
+            irmaos = por_nc_ug[(it["nc"], it["ug"])]
+            nd_orig = [l["nd"] for s in irmaos for l in s["linhas"] if l["cred"] < -0.01]
+            val_troca = sum(l["cred"] for l in it["linhas"] if l["cred"] > 0.01)
+            if nd_orig and val_troca > 0.01:
+                it["nd_troca"] = f"{nd_orig[0]} → {it['nd']}"
             else:
                 it["nd_troca"] = it["nd"]
             it["val_detalhado"] = val_troca
@@ -616,10 +687,28 @@ def etl(path):
                 it["status"] = "Sem Saldo / Zerada"
                 it["status_slug"] = "zerada"
 
+        it["saldo_celula"] = round(catrimani_celulas.get((it["ug"], it["acao"], it["pi"], it["nd"]), {}).get("cred", 0.0), 2)
+        regras_nc.anotar_prazo(it, hoje)
+        if it["status_slug"] == "disp" and it["situacao_prazo"] == regras_nc.SIT_VENCIDO:
+            it["status"] = "Disponível — prazo vencido"
+
         if isinstance(it.get("nds_envolvidas"), set):
-            it["nds_envolvidas"] = list(it["nds_envolvidas"])
+            it["nds_envolvidas"] = sorted(it["nds_envolvidas"])
 
         reconciled_catr.append(it)
+
+    # Linhas de detalhamento que só retiram a ND de origem (sem entrada nem saldo) viram parte do registro
+    # da ND de destino, para a ficha mostrar a troca inteira; o registro órfão sai da lista.
+    descartar = set()
+    for (nc_, ug_), irmaos in por_nc_ug.items():
+        destinos = [s for s in irmaos if s["is_det"] and (s["val_detalhado"] > 0.01)]
+        for s in irmaos:
+            if s["is_det"] and s.get("val_detalhado", 0) <= 0.01 and s["cred"] <= 0.005 and destinos:
+                destinos[0]["linhas"].extend(s["linhas"])
+                if s["nd"] not in destinos[0]["nds_envolvidas"]:
+                    destinos[0]["nds_envolvidas"].append(s["nd"])
+                descartar.add(id(s))
+    reconciled_catr = [s for s in reconciled_catr if id(s) not in descartar]
 
     reconciled_catr.sort(key=lambda x: _dt_br(x.get("dia")), reverse=True)
     catrimani_linhas = reconciled_catr
@@ -652,7 +741,22 @@ def etl(path):
         ot["n_ncs_cnt"] = len(ot["n_ncs"])
         ot["n_ncs"] = ot["n_ncs_cnt"]
 
-    catrimani_by_nc = {it["nc"]: it for it in catrimani_linhas}
+    # Chave por LINHA de NC (nc|ug|nd): a mesma NC pode ir a várias UG e ter várias ND.
+    catrimani_by_nc = {it["chave"]: it for it in catrimani_linhas}
+
+    # Quadro de prazos (UG × situação) com o saldo estimado por NC
+    prazos_ug = {}
+    prazos_total = {s: 0.0 for s in regras_nc.SITUACOES}
+    for it in catrimani_linhas:
+        if it["cred"] > 0.005:
+            linha_p = prazos_ug.setdefault(it["ug"], {s: 0.0 for s in regras_nc.SITUACOES})
+            linha_p[it["situacao_prazo"]] += it["cred"]
+            prazos_total[it["situacao_prazo"]] += it["cred"]
+    datas_nc = [_dt_br(it.get("dia")) for it in catrimani_linhas if _dt_br(it.get("dia")) != datetime.date.min]
+    posicao = max(datas_nc) if datas_nc else None
+    alertas.extend(alertas_pi)
+    alertas.extend(f"NC {it['nc']} (UG {it['ug']}): saldo {it['cred']:.2f} em ND genérica {it['nd']} — exige detalhamento antes do empenho"
+                   for it in catrimani_linhas if it["cred"] > 0.005 and str(it["nd"]).endswith("00") and not it["is_det"])
 
     catrimani_data = {
         "totais": catrimani_totais,
@@ -661,28 +765,66 @@ def etl(path):
         "linhas": catrimani_linhas,
         "by_nc": catrimani_by_nc,
         "ncs_distintas": catrimani_ncs_distintas,
-        "total_linhas_brutas": len(catrimani_linhas)
+        "total_linhas_brutas": len(catrimani_linhas),
+        "cred_por_pi": cred_por_pi,
+        "prazos": {"hoje": hoje.isoformat(), "por_ug": prazos_ug, "total": prazos_total,
+                   "situacoes": list(regras_nc.SITUACOES)},
+        "posicao": posicao.isoformat() if posicao else "",
+        "correlatos": sorted(catrimani_correlatos.values(), key=lambda x: x["cred"], reverse=True),
     }
+    catrimani_data["integridade"] = verificar_integridade(catrimani_data)
 
     return res, periodo, alertas, catrimani_data, omds_totais
 
-def atualizar_historico(res, data_str):
-    os.makedirs(DATA, exist_ok=True)
-    hist = []
-    if os.path.exists(HISTFILE):
+def snapshot_anterior(hist):
+    """Snapshot de POSIÇÃO diferente da última. Dois dias com a mesma posição não geram variação:
+    foi assim que a cópia da planilha antiga produziu um falso '▼ −751.815,86'."""
+    if len(hist) < 2:
+        return None
+    ult = hist[-1]
+    pos = ult.get("posicao")
+    for h in reversed(hist[:-1]):
+        if pos and h.get("posicao") == pos:
+            continue
+        return h
+    return None
+
+def _fmt_pos(h):
+    p = h.get("posicao") or h.get("data") or ""
+    return f"{p[8:10]}/{p[5:7]}" if len(p) >= 10 else p
+
+def carregar_historico(path=None):
+    path = path or HISTFILE
+    if os.path.exists(path):
         try:
-            with open(HISTFILE, "r", encoding="utf-8") as f:
-                hist = json.load(f)
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
         except Exception:
-            hist = []
+            return []
+    return []
+
+def atualizar_historico(res, data_str, catr=None, histfile=None):
+    histfile = histfile or HISTFILE
+    os.makedirs(os.path.dirname(histfile), exist_ok=True)
+    hist = carregar_historico(histfile)
     hist = [h for h in hist if h.get("data") != data_str]
-    snap = {"data": data_str}
+    snap = {"data": data_str}   # data da execução; "posicao" = data dos dados
+    if catr:
+        snap["posicao"] = catr.get("posicao", "")
     for cod, _ in ALVOS:
         snap[cod] = {k: round(res[cod][k], 2) for k in ("prov", "conc", "cred", "emp", "liq", "pag")}
     snap["total"] = {k: round(sum(res[c][k] for c, _ in ALVOS), 2) for k in ("prov", "conc", "cred", "emp", "liq", "pag")}
+    if catr:
+        pz = catr["prazos"]["total"]
+        snap["catrimani"] = {
+            "total": {k: round(catr["totais"][k], 2) for k in ("prov", "emp", "liq", "pag", "cred")},
+            "por_ug": {u["cod"]: {k: round(u[k], 2) for k in ("prov", "emp", "liq", "cred")} for u in catr["por_ug"]},
+            "vencido": round(pz.get("VENCIDO", 0.0), 2),
+            "vence_7d": round(pz.get("VENCE EM ≤7 DIAS", 0.0), 2),
+        }
     hist.append(snap)
     hist.sort(key=lambda h: h.get("data", ""))
-    with open(HISTFILE, "w", encoding="utf-8") as f:
+    with open(histfile, "w", encoding="utf-8") as f:
         json.dump(hist, f, ensure_ascii=False, indent=1)
     return hist
 
@@ -932,14 +1074,15 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
     posicao = periodo if periodo else (data_str[8:10] + "/" + data_str[5:7] + "/" + data_str[0:4])
 
     delta_html = ""
-    if len(hist) >= 2:
-        dv = hist[-1]["total"]["cred"] - hist[-2]["total"]["cred"]
+    ant = snapshot_anterior(hist)
+    if ant is not None:
+        dv = hist[-1]["total"]["cred"] - ant["total"]["cred"]
         if round(dv, 2) != 0:
             seta = "▲" if dv > 0 else "▼"
             cls = "up" if dv > 0 else "down"
-            delta_html = f'<div class="delta {cls}"><span>{seta}</span> {esc(num(dv))} <small>vs. dia anterior</small></div>'
+            delta_html = f'<div class="delta {cls}"><span>{seta}</span> {esc(num(dv))} <small>vs. posição anterior ({esc(_fmt_pos(ant))})</small></div>'
         else:
-            delta_html = '<div class="delta flat">Sem variação vs. dia anterior</div>'
+            delta_html = '<div class="delta flat">Sem variação vs. posição anterior</div>'
     else:
         delta_html = '<div class="delta flat">1º dia de histórico</div>'
 
@@ -1259,7 +1402,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         f'<div class="et-kpi"><span>Idade média</span><b class="num">{idade_media} dias</b></div>'
         f'<div class="et-kpi"><span>Mais antigo</span><b class="num">{idade_max} dias</b></div>'
         f'<div class="et-action"><button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportTable(this,\'tab-emtela-{sfx}\',\'creditos_em_tela_nc_{sfx}\')" title="Baixar relatório detalhado de créditos por NC em planilha Excel"><span class="btn-excel-ic">📥</span> Baixar Relatório NC em Excel</button></div>'
-        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ dados com ~24h de defasagem</span></div></div>'
+        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ {esc(txt_defasagem(True))}</span></div></div>'
         '<p class="sec-nota">Relação dos <b>créditos disponíveis por Nota de Crédito (NC)</b> com descrição completa do objeto e <b>dias em tela</b> (desde o lançamento da NC). '
         '<b>Clique em uma linha</b> para abrir a ficha completa. Legenda de idade: <span class="badge-age age-green">≤30d</span> recente · <span class="badge-age age-amber">31–60d</span> atenção · <span class="badge-age age-red">&gt;60d</span> crítico.</p>'
         f'<div class="tbl-tools"><label class="visually-hidden" for="q-tab-emtela-{sfx}">Buscar</label>'
@@ -1284,7 +1427,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
     resumo_html = (
         emtela_html
         + f'<section class="sec"><div class="eyebrow">Movimentação de NC — {fmt_d(max_date)} (dia anterior)</div>'
-        f'<p class="sec-nota">Notas de crédito com lançamento em <b>{fmt_d(max_date)}</b> (último dia com movimento — dados com ~24h de defasagem): '
+        f'<p class="sec-nota">Notas de crédito com lançamento em <b>{fmt_d(max_date)}</b> (último dia com movimento — {esc(txt_defasagem(True))}): '
         f'<b>{len(daily)}</b> NC(s) · Recebido <b>{esc(brl(rec_d))}</b> · Reduções <b>{esc(brl(red_d))}</b> · Líquido <b>{esc(brl(rec_d + red_d))}</b>. '
         'Clique em uma NC para detalhá-la.</p>'
         + mov_tabela(f"mov-dia-{sfx}", daily) + '</section>'
@@ -1336,7 +1479,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         f'<div class="et-kpi"><span>Provisão Recebida</span><b class="num" id="kpi-uhist-prov-{sfx}">{esc(brl(tot_u_prov))}</b></div>'
         f'<div class="et-kpi"><span>Total Empenhado</span><b class="num" id="kpi-uhist-emp-{sfx}">{esc(brl(tot_u_emp))}</b></div>'
         f'<div class="et-action"><button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportUHistExcel(\'{sfx}\',\'{u_sigla}\')" title="Baixar histórico completo de {u_sigla} em planilha Excel"><span class="btn-excel-ic">📥</span> Baixar Histórico em Excel</button></div>'
-        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ dados com ~24h de defasagem</span></div>'
+        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ {esc(txt_defasagem(True))}</span></div>'
         f'</div>'
     )
 
@@ -1405,7 +1548,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         f'<tr>'
         f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortUHist(\'fonte\', this, \'{sfx}\')" title="Ordenar por Fonte">Fonte <span class="sort"></span></th>'
         f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortUHist(\'nc\', this, \'{sfx}\')" title="Ordenar por Número da NC">NC <span class="sort"></span></th>'
-        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortUHist(\'ptres\', this, \'{sfx}\')" title="Ordenar por PTRES / Ação">Ação · ND <span class="sort"></span></th>'
+        f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortUHist(\'ptres\', this, \'{sfx}\')" title="Ordenar por Ação">Ação · ND <span class="sort"></span></th>'
         f'<th>Descrição do objeto da NC</th>'
         f'<th tabindex="0" role="button" aria-sort="none" onclick="bcmsSortUHist(\'emit\', this, \'{sfx}\')" title="Ordenar por UG Emitente">UG Emitente <span class="sort"></span></th>'
         f'<th tabindex="0" role="button" aria-sort="descending" onclick="bcmsSortUHist(\'dt\', this, \'{sfx}\')" title="Ordenar por Data">Recebido em <span class="sort">▼</span></th>'
@@ -1618,12 +1761,12 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
             f'</div>'
         )
 
-    sub_prov_txt = f"Líquido: {brl(cmd_prov)} (Bruto {brl(cmd_prov_bruta)} − {brl(cmd_conc)} repasses)" if cmd_conc > 0 else "9 OMDS da Amazônia"
+    sub_prov_txt = f"Líquido: {brl(cmd_prov)} (Bruto {brl(cmd_prov_bruta)} − {brl(cmd_conc)} repasses)" if cmd_conc > 0 else f"{len(OMDS_COMPARATIVO)} OM da 12ª RM / CMA"
     kpis_cmd = (
         kpi_tile("Dotação Líquida (Comando)", brl(cmd_prov), sub_prov_txt, "prov", onclick="bcmsModalKpi('prov')") +
         kpi_tile("Empenhado (Comando)", brl(cmd_emp), f"{cmd_exec_pct:.1f}% de execução", "emp", onclick="bcmsModalKpi('emp')") +
         kpi_tile("Liquidado (Comando)", brl(cmd_liq), f"{cmd_liq_pct:.1f}% do empenhado", "liq", onclick="bcmsModalKpi('liq')") +
-        kpi_tile("Crédito Disponível", brl(cmd_cred), f"9 OMDS monitoradas", "pag", onclick="bcmsModalKpi('cred')")
+        kpi_tile("Crédito Disponível", brl(cmd_cred), f"{len(OMDS_COMPARATIVO)} OM monitoradas", "pag", onclick="bcmsModalKpi('cred')")
     )
 
     ch_cred = svg_comparativo_barras(u_stats, "cred", "Crédito Disponível por Unidade (R$)")
@@ -1678,7 +1821,7 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
 
     tfoot_tbl = (
         f'<tfoot><tr>'
-        f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO (9 OMDS)</b></td>'
+        f'<td colspan="3"><b>TOTAL CONSOLIDADO DO COMANDO ({len(OMDS_COMPARATIVO)} OM)</b></td>'
         f'<td class="num"><b>{esc(brl(cmd_prov_bruta))}</b></td>'
         f'<td class="num" style="color:var(--bad, #EF4444);"><b>{esc(brl(cmd_conc))}</b></td>'
         f'<td class="num" style="font-weight:700;color:var(--primary);"><b>{esc(brl(cmd_prov))}</b></td>'
@@ -1711,6 +1854,16 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
         f'<div class="hero-eq-box eq-highlight"><span class="eq-tag">DISPONÍVEL COMANDO</span><span class="eq-val num eq-disp">{esc(brl(cmd_cred))}</span></div>'
     )
 
+    rm = omds_totais.get("RM12", {})
+    n_om = len(OMDS_COMPARATIVO)
+    ac_rm = rm.get("acoes", {})
+    ac_212b = ac_rm.get("212B", 0.0)
+    cat_total = sum(o.get("acoes", {}).get("21EM", 0.0) for o in omds_totais.values())
+    cat_bec = omds_totais.get("BEC6", {}).get("acoes", {}).get("21EM", 0.0)
+    cat_rm = ac_rm.get("21EM", 0.0)
+    rm_prov = rm.get("prov", 0.0)
+    txt_212b = (f" (<b>Ação 212B — Alimentação das Forças Armadas: {esc(brl(ac_212b))}</b>, {pct(ac_212b, rm_prov):.0f}% do total da OM)"
+                if ac_212b > 0.005 and rm_prov > 0 else "")
     banner_auditoria_html = f"""
   <div class="audit-banner-card" style="background:linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.05));border:1px solid rgba(245, 158, 11, 0.35);border-radius:12px;padding:18px 24px;margin-bottom:24px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -1719,13 +1872,13 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
     </div>
     <div style="font-size:0.84rem;line-height:1.6;color:var(--ink);">
       <p style="margin:0 0 8px 0;">
-        <b>1. Escopo Global das OMDS (OGU Ordinário Anual):</b> Os valores deste ranking consolidam o <b>orçamento anual integral</b> das 9 OMDS da Amazônia (todas as ações do OGU). O volume de <b>R$ 57,36 Milhões</b> da <b>12ª Região Militar</b> decorre de seu encargo de escalão intermediário e polo regional de subsistência de toda a Amazônia Ocidental (<b>Ação 212B — Alimentação das Forças Armadas: R$ 34,36 Milhões</b>, 60% do total da OM).
+        <b>1. Escopo Global das OM (OGU Ordinário Anual):</b> Os valores deste ranking consolidam o <b>orçamento anual integral</b> das {n_om} OM monitoradas (todas as ações do OGU). A <b>12ª Região Militar</b> recebeu <b>{esc(brl(rm_prov))}</b>, por seu encargo de escalão intermediário{txt_212b}.
       </p>
       <p style="margin:0 0 8px 0;">
-        <b>2. Segregação da Operação Catrimani II (Ação 21EM):</b> Os recursos específicos da Catrimani totalizam <b>R$ 10,49 Milhões</b> para todo o Multi-UG (sendo R$ 1,16M no 6º BEC e apenas R$ 30,4 mil na 12ª RM). Eles estão apresentados e auditados de forma exclusiva nas abas <i>"🎖️ Operação Catrimani II"</i> e <i>"Visão por Ação Governamental"</i> sem duplicidades.
+        <b>2. Segregação da Operação Catrimani II (Ação 21EM):</b> Os recursos específicos da Catrimani somam <b>{esc(brl(cat_total))}</b> nas OM deste ranking (sendo {esc(brl(cat_bec))} no 6º BEC e {esc(brl(cat_rm))} na 12ª RM). Eles estão apresentados e auditados de forma exclusiva nas abas <i>"🎖️ Operação Catrimani II"</i> e <i>"Visão por Ação Governamental"</i> sem duplicidades.
       </p>
       <p style="margin:0;">
-        <b>3. Expurgos de Repasses e Dupla Contagem:</b> A 12ª RM descentralizou <b>R$ 2.994.525,82 em provisões concedidas</b> (dos quais R$ 1.356.547,72 repassados diretamente às outras OMDS deste relatório, como 4º BAvEx, 1º B Log Sl, Pq R Mnt/12 e 6º BEC). Para expurgar duplicações no Total Consolidado do Comando e espelhar o MCASP/SIAFI, adota-se a <b>Dotação Líquida (Recebida − Concedida: R$ 157,39M)</b> como base oficial de execução orçamentária.
+        <b>3. Expurgos de Repasses e Dupla Contagem:</b> A 12ª RM descentralizou <b>{esc(brl(rm.get("conc", 0.0)))} em provisões concedidas</b> (dos quais {esc(brl(rm.get("repasse_omds", 0.0)))} repassados diretamente às outras OM deste relatório). Para expurgar duplicações no Total Consolidado do Comando e espelhar o MCASP/SIAFI, adota-se a <b>Dotação Líquida (Recebida − Concedida: {esc(brl(cmd_prov))})</b> como base oficial de execução orçamentária.
       </p>
     </div>
   </div>
@@ -1735,14 +1888,14 @@ def secao_comparativo_omds(omds_totais, hist, data_str, periodo):
   <div class="ranking-header-card">
     <div class="rh-tag">🏆 BENCHMARKING ORÇAMENTÁRIO & FINANCEIRO</div>
     <h2 class="rh-title">Ranking & Comparativo Consolidado das OMDS</h2>
-    <p class="rh-desc">Visão executiva integrada das 9 Organizações Militares Diretamente Subordinadas da Base de Apoio Logístico do Exército. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
+    <p class="rh-desc">Visão executiva integrada das {n_om} Organizações Militares da 12ª RM / CMA monitoradas. Acompanhe os indicadores de desempenho, taxa de execução orçamentária (% Empenhado) e créditos em tela.</p>
   </div>
 
   {banner_auditoria_html}
 
   <section class="hero hero-cmd">
     <div class="hero-l">
-      <div class="eyebrow">Crédito Disponível · Consolidado do Comando (9 OMDS)</div>
+      <div class="eyebrow">Crédito Disponível · Consolidado do Comando ({n_om} OM)</div>
       <div class="hero-num num">{esc(brl(cmd_cred))}</div>
       <div class="hero-eq">{hero_eq_cmd}</div>
     </div>
@@ -2120,7 +2273,7 @@ def secao_historico_ncs(res, hist, data_str, periodo, catr=None):
     tools_hist_html = (
         f'<div class="tbl-tools">'
         f'<label class="visually-hidden" for="flt-hist-busca">Buscar</label>'
-        f'<input type="search" id="flt-hist-busca" class="tbl-search" placeholder="Buscar por NC, Justificativa, UG, PTRES, ND ou PI…" oninput="bcmsFiltraHistorico()">'
+        f'<input type="search" id="flt-hist-busca" class="tbl-search" placeholder="Buscar por NC, Justificativa, UG, Ação, ND ou PI…" oninput="bcmsFiltraHistorico()">'
         f'<button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportHistoricoExcel()" title="Baixar histórico consolidado em planilha formatada para Excel"><span class="btn-excel-ic">📊</span> Exportar Histórico Completo (Excel)</button>'
         f'<span class="tbl-count" id="cnt-hist-ncs" data-unit="Notas de Crédito" aria-live="polite">Exibindo {len(hist_list)} de {len(hist_list)} Notas de Crédito ({tot_distintas} distintas)</span>'
         f'</div>'
@@ -2277,7 +2430,231 @@ def svg_catrimani_nds(nds_list, titulo="Despesas por Natureza de Despesa — Ope
     svg = f'<svg viewBox="0 0 {W} {H}" class="svg" role="img" aria-label="{esc(titulo)}">{"".join(el)}</svg>'
     return f'<div class="card chart"><div class="eyebrow">{esc(titulo)}</div>{svg}</div>'
 
-def secao_operacao_catrimani(catr, data_str, periodo):
+PRAZO_COR = {
+    "VENCIDO": "#EF4444", "VENCE EM ≤7 DIAS": "#EA580C", "VENCE EM ≤30 DIAS": "#D97706",
+    "EMPENHO IMEDIATO": "#2563EB", "SEM PRAZO NA NC": "#64748B", "PRAZO > 30 DIAS": "#10B981",
+}
+
+def prazo_pill(it):
+    if it.get("cred", 0) <= 0.005:
+        return '<span class="tbl-om-sub">—</span>'
+    sit = it.get("situacao_prazo", "")
+    dias = it.get("dias_para_prazo")
+    extra = ""
+    if dias is not None:
+        extra = f" · há {-dias}d" if dias < 0 else f" · {dias}d"
+    trava = " 🔒" if it.get("trava_nd_ugr") else ""
+    return (f'<span class="pill-nd" style="background:var(--track);color:{PRAZO_COR.get(sit, "#64748B")};font-weight:700;"'
+            f' title="Prazo lido do objeto da NC">{esc(sit)}{esc(extra)}{trava}</span>')
+
+def quadro_prazos_html(catr):
+    pz = catr["prazos"]
+    ordem = ["VENCIDO", "VENCE EM ≤7 DIAS", "VENCE EM ≤30 DIAS", "EMPENHO IMEDIATO", "SEM PRAZO NA NC", "PRAZO > 30 DIAS"]
+    sits = [s for s in ordem if s in pz["situacoes"]]
+    rot = {"VENCIDO": "Vencido", "VENCE EM ≤7 DIAS": "≤ 7 dias", "VENCE EM ≤30 DIAS": "≤ 30 dias",
+           "EMPENHO IMEDIATO": "Imediato", "SEM PRAZO NA NC": "Sem prazo", "PRAZO > 30 DIAS": "> 30 dias"}
+    nome_ug = {u["cod"]: u for u in catr["por_ug"]}
+    linhas = []
+    for cod, vals in sorted(pz["por_ug"].items(), key=lambda kv: -sum(kv[1].values())):
+        u = nome_ug.get(cod, {})
+        cels = "".join(
+            (f'<td class="num"><button type="button" class="prazo-cel" style="color:{PRAZO_COR[s]};" '
+             f'onclick="bcmsFiltraPrazo(\'{cod}\',\'{s}\')" title="Filtrar o extrato: {esc(u.get("sigla", cod))} · {esc(rot[s])}">{esc(brl(vals[s]))}</button></td>'
+             if vals[s] > 0.005 else '<td class="num tbl-om-sub">—</td>') for s in sits)
+        linhas.append(f'<tr><td><b>{esc(u.get("sigla", cod))}</b> <span class="tbl-om-sub">UG {esc(cod)}</span></td>{cels}'
+                      f'<td class="num anchor"><b>{esc(brl(sum(vals.values())))}</b></td></tr>')
+    foot = "".join(f'<td class="num"><b>{esc(brl(pz["total"][s]))}</b></td>' for s in sits)
+    cab = "".join(f'<th class="num" style="color:{PRAZO_COR[s]};">{esc(rot[s])}</th>' for s in sits)
+    hoje = datetime.date.fromisoformat(pz["hoje"]).strftime("%d/%m/%Y")
+    return (
+        '<section class="sec" id="quadro-prazos">'
+        '<div class="eyebrow">Quadro de Prazos de Empenho · saldo estimado por UG</div>'
+        f'<p class="sec-nota">Prazos lidos do objeto de cada NC e contados a partir de <b>{hoje}</b> (data desta execução). '
+        'O saldo por NC é <b>estimado</b>: o Tesouro Gerencial não vincula empenho a NC. <b>Clique em um valor</b> para filtrar o extrato abaixo.</p>'
+        '<div class="tbl-wrap tbl-scroll"><table class="tbl" aria-label="Prazos de empenho por UG">'
+        f'<thead><tr><th>UG</th>{cab}<th class="num">Total</th></tr></thead><tbody>{"".join(linhas)}</tbody>'
+        f'<tfoot><tr><td><b>TOTAL</b></td>{foot}<td class="num anchor"><b>{esc(brl(sum(pz["total"].values())))}</b></td></tr></tfoot>'
+        '</table></div></section>')
+
+def fila_d10_html(catr):
+    """10.1 — tela de abertura: o que vence e quem precisa agir, ordenada por prazo."""
+    hoje = datetime.date.fromisoformat(catr["prazos"]["hoje"])
+    fila = analises_d10.fila_acao(catr["linhas"])
+    if not fila:
+        return ('<section class="sec"><div class="eyebrow">Fila de ação do D10</div>'
+                '<p class="vazio">✅ Nenhuma NC com saldo a empenhar na posição atual.</p></section>')
+    por_ug = {}
+    for it in fila:
+        por_ug.setdefault(it["ug"], []).append(it)
+    siglas = {u["cod"]: u.get("sigla", u["cod"]) for u in catr["por_ug"]}
+    botoes = "".join(
+        f'<button type="button" class="flt-limpa" data-texto="{esc(analises_d10.texto_cobranca(siglas.get(ug, ug), ug, itens, hoje))}" '
+        f'onclick="bcmsCopiarTexto(this)" title="Copia o texto de cobrança desta UG">📋 Copiar cobrança · {esc(siglas.get(ug, ug))}</button>'
+        for ug, itens in sorted(por_ug.items(), key=lambda kv: -sum(i["cred"] for i in kv[1])))
+    linhas = "".join(
+        f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'{esc(it["chave"])}\')">'
+        f'<td><b>{esc(siglas.get(it["ug"], it["ug"]))}</b> <span class="tbl-om-sub">UG {esc(it["ug"])}</span></td>'
+        f'<td><b class="nc-mono">{esc(it["nc"][-8:])}</b></td><td>{esc(it["nd"])}</td>'
+        f'<td class="num anchor"><b>{esc(brl(it["cred"]))}</b></td>'
+        f'<td class="num">{"—" if it.get("dias_para_prazo") is None else it["dias_para_prazo"]}</td>'
+        f'<td>{prazo_pill(it)}</td></tr>' for it in fila[:15])
+    return (
+        '<section class="sec" id="fila-d10"><div class="eyebrow">Fila de ação do D10 · o que vence e quem precisa agir</div>'
+        f'<p class="sec-nota">As <b>{min(15, len(fila))}</b> NCs mais urgentes de {len(fila)} com saldo, por prazo (saldo <b>estimado</b>). '
+        'Use os botões para copiar o texto de cobrança de cada UG.</p>'
+        f'<div class="tbl-tools" style="flex-wrap:wrap;gap:8px;">{botoes}</div>'
+        '<div class="tbl-wrap tbl-scroll"><table class="tbl" aria-label="Fila de ação do D10">'
+        '<thead><tr><th>UG</th><th>NC</th><th>ND</th><th class="num">Saldo estimado</th><th class="num">Dias p/ prazo</th><th>Prazo</th></tr></thead>'
+        f'<tbody>{linhas}</tbody></table></div></section>')
+
+def recolhimentos_html(catr):
+    """10.2 — quanto a operação devolveu (anulações de descentralização), por mês e emitente."""
+    rc = analises_d10.recolhimentos(catr["linhas"])
+    if rc["n"] == 0:
+        return ('<section class="sec"><div class="eyebrow">Recolhimentos · anulações de descentralização</div>'
+                '<p class="vazio">Nenhuma anulação de descentralização na posição atual.</p></section>')
+    mx = max(rc["por_mes"].values()) or 1
+    meses = "".join(
+        f'<tr><td>{esc(m[5:7] + "/" + m[:4] if len(m) == 7 else m)}</td>'
+        f'<td><div style="background:var(--track);border-radius:4px;"><div style="width:{v / mx * 100:.1f}%;background:#0EA5E9;height:12px;border-radius:4px;"></div></div></td>'
+        f'<td class="num">{esc(brl(v))}</td></tr>' for m, v in rc["por_mes"].items())
+    emits = "".join(
+        f'<tr><td><b>{esc(e)}</b> <span class="tbl-om-sub">{esc({"160539": "COTER", "160504": "COEx", "160073": "DGO"}.get(e, ""))}</span></td>'
+        f'<td class="num">{esc(brl(v))}</td></tr>' for e, v in sorted(rc["por_emit"].items(), key=lambda kv: -kv[1]))
+    return (
+        '<section class="sec"><div class="eyebrow">Recolhimentos · anulações de descentralização</div>'
+        f'<p class="sec-nota">A operação devolveu <b>{esc(brl(rc["total"]))}</b> em {rc["n"]} lançamento(s) de anulação. '
+        'Devolver saldo não é achado negativo: é gestão do crédito que não seria empenhado a tempo.</p>'
+        '<div class="grid2"><div class="tbl-wrap"><table class="tbl" aria-label="Recolhimentos por mês"><thead><tr><th>Mês</th><th></th><th class="num">Devolvido</th></tr></thead>'
+        f'<tbody>{meses}</tbody></table></div>'
+        f'<div class="tbl-wrap"><table class="tbl" aria-label="Recolhimentos por emitente"><thead><tr><th>Emitente</th><th class="num">Devolvido</th></tr></thead><tbody>{emits}</tbody></table></div></div></section>')
+
+def idade_metas_html(catr):
+    """10.3 e 10.4 — idade do saldo ocioso por UG e desvio frente às metas do COTER (parâmetro)."""
+    hoje = datetime.date.fromisoformat(catr["prazos"]["hoje"])
+    idade = analises_d10.idade_ociosa(catr["linhas"], hoje)
+    metas = analises_d10.carregar_metas()
+    meta = analises_d10.meta_vigente(metas, hoje)
+    desv = analises_d10.desvio_metas(catr["por_ug"], meta)
+    def dv(v):
+        if v is None:
+            return '<td class="num tbl-om-sub">—</td>'
+        cor = "var(--ok,#10B981)" if v >= 0 else "var(--bad,#EF4444)"
+        return f'<td class="num" style="color:{cor};font-weight:700;">{v:+.1f} p.p.</td>'
+    linhas = []
+    for u in sorted(catr["por_ug"], key=lambda x: -idade.get(x["cod"], {}).get("saldo", 0.0)):
+        i = idade.get(u["cod"])
+        d = desv[u["cod"]]
+        idade_txt = (f'<td class="num">{i["media"]:.0f} d</td><td class="num">{i["max"]} d <span class="tbl-om-sub">NC {esc(i["nc_antiga"][-6:])}</span></td>'
+                     if i else '<td class="num tbl-om-sub">—</td><td class="num tbl-om-sub">—</td>')
+        linhas.append(f'<tr><td><b>{esc(u.get("sigla", u["cod"]))}</b></td>'
+                      f'<td class="num">{esc(brl(i["saldo"])) if i else "—"}</td>{idade_txt}'
+                      f'<td class="num">{d["pct_emp"]:.1f}%</td>{dv(d["d_emp"])}<td class="num">{d["pct_liq"]:.1f}%</td>{dv(d["d_liq"])}</tr>')
+    if meta:
+        nota_meta = (f'Meta vigente (<b>{esc(meta.get("rotulo", ""))}</b>): empenho {meta.get("emp", "—")}% · liquidação {meta.get("liq", "—")}% '
+                     f'— fonte: {esc(metas.get("fonte", ""))}.')
+    else:
+        nota_meta = ('<b>Metas do COTER não configuradas.</b> Preencha <code>data/metas_coter.json</code> '
+                     '(marcos com <code>de</code>, <code>ate</code>, <code>emp</code>, <code>liq</code>) para ver o desvio por UG; a meta é parâmetro, nunca fixa no código.')
+    return (
+        '<section class="sec"><div class="eyebrow">Idade do saldo ocioso e desvio frente às metas do COTER</div>'
+        f'<p class="sec-nota"><b>Idade</b> = dias desde a emissão da NC, ponderada pelo saldo estimado. O indicador da DGOF (intervalo até o 1º empenho da célula) '
+        f'depende da data da NE e entra com a consulta de empenhos. {nota_meta}</p>'
+        '<div class="tbl-wrap tbl-scroll"><table class="tbl" aria-label="Idade do saldo e metas">'
+        '<thead><tr><th>UG</th><th class="num">Saldo estimado</th><th class="num">Idade média</th><th class="num">NC mais antiga</th>'
+        '<th class="num">% empenhado</th><th class="num">Δ meta emp.</th><th class="num">% liquidado</th><th class="num">Δ meta liq.</th></tr></thead>'
+        f'<tbody>{"".join(linhas)}</tbody></table></div></section>')
+
+def alerta_nd_generica_html(catr):
+    itens = [it for it in catr["linhas"] if it["cred"] > 0.005 and str(it["nd"]).endswith("00") and not it["is_det"]]
+    if not itens:
+        return ""
+    total = sum(it["cred"] for it in itens)
+    li = "".join(f'<li>NC {esc(it["nc"][-8:])} · UG {esc(it["ug"])} · ND {esc(it["nd"])}: <b>{esc(brl(it["cred"]))}</b></li>' for it in itens)
+    return ('<section class="sec"><div class="audit-banner-card" style="border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.07);border-radius:12px;padding:14px 18px;">'
+            f'<b>⚠️ Saldo em ND genérica ({esc(brl(total))}):</b> crédito em 33.90.00 exige <b>detalhamento antes do empenho</b>.<ul style="margin:6px 0 0 18px;">{li}</ul></div></section>')
+
+def correlatos_html(catr):
+    cor = catr.get("correlatos") or []
+    if not cor:
+        return ""
+    linhas = "".join(
+        f'<tr><td><b>{esc(c["ug"])}</b> <span class="tbl-om-sub">{esc(c["ug_nome"])}</span></td>'
+        f'<td><span class="pill-ptres">{esc(c["acao"])}</span> · <span class="pill-pi">{esc(c["pi"])}</span></td>'
+        f'<td>{esc(c["nd"])}</td><td>{esc(", ".join(x["nc"][-8:] for x in c["ncs"]))}</td>'
+        f'<td class="num">{esc(brl(c["prov"] - c["conc"]))}</td><td class="num">{esc(brl(c["emp"]))}</td>'
+        f'<td class="num anchor"><b>{esc(brl(c["cred"]))}</b></td></tr>' for c in cor)
+    return (
+        '<section class="sec"><div class="eyebrow">Créditos correlatos de outras Ações — não somam na 21EM</div>'
+        '<p class="sec-nota">NCs de outras Ações que citam a operação no objeto (diárias, PNR funcional etc.). '
+        'O saldo exibido é o da <b>célula UG · PI · ND</b>, que é compartilhada com despesas alheias à operação — por isso não entra nos totais.</p>'
+        '<div class="tbl-wrap tbl-scroll"><table class="tbl" aria-label="Créditos correlatos">'
+        '<thead><tr><th>UG</th><th>Ação · PI</th><th>ND</th><th>NCs</th><th class="num">Recebido (NC)</th><th class="num">Empenhado (célula)</th><th class="num">Saldo da célula</th></tr></thead>'
+        f'<tbody>{linhas}</tbody></table></div></section>')
+
+def _cel_delta(v):
+    if abs(v) < 0.005:
+        return '<td class="num" style="color:var(--ink-muted);">—</td>'
+    cor = "var(--ok,#10B981)" if v > 0 else "var(--bad,#EF4444)"
+    return f'<td class="num" style="color:{cor};">{esc(("+" if v > 0 else "") + brl(v))}</td>'
+
+def serie_catrimani_html(hist, catr):
+    pts = [h for h in (hist or []) if h.get("catrimani")]
+    if len(pts) < 2:
+        ini = (pts[0].get("posicao") or pts[0]["data"]) if pts else ""
+        msg = (f"A série da Ação 21EM começa em {ini[8:10]}/{ini[5:7]}; as curvas aparecem a partir da 2ª posição distinta."
+               if ini else "A série da Ação 21EM começa na próxima execução.")
+        return f'<section class="sec"><div class="eyebrow">Série histórica da Ação 21EM</div><p class="vazio">{esc(msg)}</p></section>'
+    # uma observação por POSIÇÃO (a última execução daquela posição)
+    por_pos = {}
+    for h in pts:
+        por_pos[h.get("posicao") or h["data"]] = h
+    pts = [por_pos[k] for k in sorted(por_pos)]
+    if len(pts) < 2:
+        return '<section class="sec"><div class="eyebrow">Série histórica da Ação 21EM</div><p class="vazio">Só há uma posição de dados registrada; as curvas aparecem quando a posição avançar.</p></section>'
+    W, H, pl, pb, pt, pr = 720, 230, 70, 36, 18, 30
+    pw, ph = W - pl - pr, H - pb - pt
+    series = [("prov", "Recebido", "#2563EB"), ("emp", "Empenhado", "#D97706"), ("cred", "Disponível", "#10B981")]
+    vmax = max(max(h["catrimani"]["total"][k] for k, _, _ in series) for h in pts) or 1
+    n = len(pts)
+    def X(i): return pl + (pw * i / (n - 1) if n > 1 else pw / 2)
+    def Y(v): return pt + ph - (v / vmax * ph)
+    el = []
+    for g in range(4):
+        v = vmax * g / 3
+        el.append(f'<line x1="{pl}" y1="{Y(v):.1f}" x2="{W-pr}" y2="{Y(v):.1f}" class="s-grid"/>'
+                  f'<text x="{pl-10}" y="{Y(v)+4:.1f}" text-anchor="end" class="s-ax">{esc(abrev(v))}</text>')
+    for k, nome, cor in series:
+        d = "M" + " L".join(f"{X(i):.1f},{Y(h['catrimani']['total'][k]):.1f}" for i, h in enumerate(pts))
+        el.append(f'<path d="{d}" fill="none" stroke="{cor}" stroke-width="2.5"/>')
+        for i, h in enumerate(pts):
+            pos_h = h.get("posicao") or h["data"]
+            el.append(f'<circle cx="{X(i):.1f}" cy="{Y(h["catrimani"]["total"][k]):.1f}" r="3.5" fill="{cor}"><title>{nome} {pos_h}: {esc(brl(h["catrimani"]["total"][k]))}</title></circle>')
+    step = max(1, n // 6)
+    for i, h in enumerate(pts):
+        if i % step == 0 or i == n - 1:
+            p = h.get("posicao") or h["data"]
+            el.append(f'<text x="{X(i):.1f}" y="{H-pb+18}" text-anchor="middle" class="s-ax">{p[8:10]}/{p[5:7]}</text>')
+    leg = " ".join(f'<span style="color:{c};font-weight:700;margin-right:14px;">● {n_}</span>' for _, n_, c in series)
+    svg = f'<svg viewBox="0 0 {W} {H}" class="svg" role="img" aria-label="Série histórica da Ação 21EM: recebido, empenhado e disponível">{"".join(el)}</svg>'
+    # variação por UG entre as duas últimas posições
+    ant, ult = pts[-2], pts[-1]
+    linhas = []
+    for u in catr["por_ug"]:
+        a = ant["catrimani"]["por_ug"].get(u["cod"], {})
+        b = ult["catrimani"]["por_ug"].get(u["cod"], {})
+        dv = {k: b.get(k, 0.0) - a.get(k, 0.0) for k in ("prov", "emp", "cred")}
+        estado = '<span class="tbl-om-sub">parada</span>' if all(abs(v) < 0.005 for v in dv.values()) else ""
+        linhas.append(f'<tr><td><b>{esc(u.get("sigla", u["cod"]))}</b></td>{_cel_delta(dv["prov"])}{_cel_delta(dv["emp"])}{_cel_delta(dv["cred"])}<td>{estado}</td></tr>')
+    pa, pu = (ant.get("posicao") or ant["data"]), (ult.get("posicao") or ult["data"])
+    return (
+        '<section class="sec"><div class="eyebrow">Série histórica da Ação 21EM · recebido × empenhado × disponível</div>'
+        f'<div class="card chart wide"><div style="margin-bottom:6px;font-size:0.8125rem;">{leg}</div>{svg}</div>'
+        f'<p class="sec-nota" style="margin-top:12px;">Variação por UG entre as posições <b>{pa[8:10]}/{pa[5:7]}</b> e <b>{pu[8:10]}/{pu[5:7]}</b>: quem recebeu, quem empenhou, quem ficou parado.</p>'
+        '<div class="tbl-wrap tbl-scroll"><table class="tbl" aria-label="Variação por UG"><thead><tr><th>UG</th><th class="num">Δ Recebido</th><th class="num">Δ Empenhado</th><th class="num">Δ Disponível</th><th></th></tr></thead>'
+        f'<tbody>{"".join(linhas)}</tbody></table></div></section>')
+
+def secao_operacao_catrimani(catr, data_str, periodo, hist=None):
     tot = catr["totais"]
     por_ug = catr["por_ug"]
     por_nd = catr["por_nd"]
@@ -2300,7 +2677,8 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         f'</div>'
     )
 
-    # Tabela comparativa das 10 UGs
+    n_ug = len(por_ug)
+    # Tabela comparativa das UGs
     distinct_catr_ncs = catr.get("ncs_distintas", len(set(x["nc"] for x in linhas if x.get("nc"))))
 
     ug_rows = []
@@ -2352,7 +2730,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     )
 
     # Select de UGs para o filtro
-    opt_ugs = '<option value="">UG: todas as 10 UGs</option>' + "".join(
+    opt_ugs = f'<option value="">UG: todas as {n_ug} UGs</option>' + "".join(
         f'<option value="{esc(u["cod"])}">{esc(u["cod"])} · {esc(u["nome"])}</option>' for u in por_ug
     )
 
@@ -2379,7 +2757,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
             st_txt = "Empenhada"
             nd_disp = f'{esc(item["nd"])} <span class="tbl-om-sub">{esc(item["nd_desc"][:20])}</span>'
 
-        nc_cod = esc(item["nc"])
+        nc_cod = esc(item["chave"])
         initial_catr_rows.append(
             f'<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'{nc_cod}\')" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();bcmsOpenNCModalManual(\'{nc_cod}\');}}" '
@@ -2394,6 +2772,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
             f'<td class="num">{esc(brl(item["emp"]))}</td>'
             f'<td class="num anchor" style="font-weight:700;">{esc(brl(item["cred"]))}</td>'
             f'<td><span class="pill-nd" style="background:var(--track);color:{st_cor};font-weight:700;">{st_txt}</span></td>'
+            f'<td>{prazo_pill(item)}</td>'
             f'</tr>'
         )
 
@@ -2408,7 +2787,7 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         <h2 class="rh-title" style="margin:0;">🎖️ Operação Catrimani II — Execução Orçamentária Multi-UGs</h2>
       </div>
     </div>
-    <p class="rh-desc">Painel executivo oficial de acompanhamento das descentralizações de crédito orçamentário da <b>Ação Governamental 21EM</b> e Planos Internos correlatos. Consolida todas as movimentações financeiras das 10 Unidades Gestoras Executoras da Amazônia, com extrato analítico de empenhos, liquidações e saldos livres disponíveis em tela.</p>
+    <p class="rh-desc">Painel executivo oficial de acompanhamento das descentralizações de crédito orçamentário da <b>Ação Governamental 21EM</b> e Planos Internos correlatos. Consolida todas as movimentações financeiras das {n_ug} Unidades Gestoras Executoras da Amazônia, com extrato analítico de empenhos, liquidações e saldos livres disponíveis em tela.</p>
   </div>
 
   <section class="hero" style="margin-top:20px;">
@@ -2427,6 +2806,12 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     <div class="kpis">{kpis_html}</div>
   </section>
 
+  {fila_d10_html(catr)}
+
+  {alerta_nd_generica_html(catr)}
+
+  {quadro_prazos_html(catr)}
+
   <section class="sec">
     <div class="eyebrow">Composição Visual por Natureza de Despesa</div>
     <div class="grid2">
@@ -2440,13 +2825,21 @@ def secao_operacao_catrimani(catr, data_str, periodo):
 
   <section class="sec">
     <div class="eyebrow">Acompanhamento Orçamentário por Unidade Gestora Executora</div>
-    <p class="sec-nota">Relação consolidada das <b>10 Organizações Militares</b> executoras da Operação Catrimani II. <b>Clique em qualquer linha ou crédito</b> para abrir a ficha completa com balanço, despesas por ND e extrato de NCs daquela UG.</p>
+    <p class="sec-nota">Relação consolidada das <b>{n_ug} Organizações Militares</b> executoras da Operação Catrimani II. <b>Clique em qualquer linha ou crédito</b> para abrir a ficha completa com balanço, despesas por ND e extrato de NCs daquela UG.</p>
     {tabela_ugs_html}
   </section>
 
+  {serie_catrimani_html(hist, catr)}
+
+  {recolhimentos_html(catr)}
+
+  {idade_metas_html(catr)}
+
+  {correlatos_html(catr)}
+
   <section class="sec">
     <div class="eyebrow">Extrato Completo de Notas de Crédito da Operação Catrimani</div>
-    <p class="sec-nota">Relação auditada das <b>{distinct_catr_ncs} Notas de Crédito distintas</b> ({len(linhas)} lançamentos de dotação) recebidas pelas 10 UGs executoras no âmbito da Operação Catrimani II. Utilize os filtros interativos de UG, Fonte e Saldo, pesquise em tempo real ou exporte a relação completa para Excel. <b>Clique em qualquer linha</b> para abrir a ficha cadastral no modal.</p>
+    <p class="sec-nota">Relação auditada das <b>{distinct_catr_ncs} Notas de Crédito distintas</b> ({len(linhas)} lançamentos de dotação) recebidas pelas {n_ug} UGs executoras no âmbito da Operação Catrimani II. Utilize os filtros interativos de UG, Fonte e Saldo, pesquise em tempo real ou exporte a relação completa para Excel. <b>Clique em qualquer linha</b> para abrir a ficha cadastral no modal.</p>
     <div class="tbl-tools">
       <input type="search" id="flt-catr-busca" class="tbl-search" placeholder="Buscar por NC, Favorecido, Objeto, ND ou PI (multi-termos)…" oninput="bcmsFiltraCatrimani()">
       <button type="button" class="flt-limpa" onclick="bcmsLimparFiltrosCatrimani()" title="Limpar todos os termos e filtros de pesquisa">↺ Limpar Filtros</button>
@@ -2469,6 +2862,15 @@ def secao_operacao_catrimani(catr, data_str, periodo):
         <option value="zerada">⚪ Empenhadas / Executadas</option>
         <option value="detalhada">🔄 Detalhamentos de ND (Trocas)</option>
       </select>
+      <select class="flt" id="flt-catr-prazo" aria-label="Filtrar por prazo de empenho" onchange="bcmsFiltraCatrimani()">
+        <option value="">Prazo: todos</option>
+        <option value="VENCIDO">🔴 Vencido</option>
+        <option value="VENCE EM ≤7 DIAS">🟠 Vence em ≤ 7 dias</option>
+        <option value="VENCE EM ≤30 DIAS">🟡 Vence em ≤ 30 dias</option>
+        <option value="EMPENHO IMEDIATO">🔵 Empenho imediato</option>
+        <option value="SEM PRAZO NA NC">⚪ Sem prazo na NC</option>
+        <option value="PRAZO > 30 DIAS">🟢 Prazo &gt; 30 dias</option>
+      </select>
     </div>
     <div class="tbl-wrap">
       <table class="tbl" id="tab-catrimani-ncs" aria-label="Notas de Crédito da Operação Catrimani">
@@ -2482,8 +2884,9 @@ def secao_operacao_catrimani(catr, data_str, periodo):
             <th>Objeto / Finalidade</th>
             <th class="num">Recebido</th>
             <th class="num">Empenhado</th>
-            <th class="num">Crédito Disp.</th>
+            <th class="num" title="Estimado: o TG não vincula empenho a NC. O saldo exato é o da célula UG · PI · ND.">Saldo estimado da NC</th>
             <th>Status</th>
+            <th>Prazo de empenho</th>
           </tr>
         </thead>
         <tbody id="tbody-catr-ncs">
@@ -2495,11 +2898,12 @@ def secao_operacao_catrimani(catr, data_str, periodo):
             <td class="num"><b>{esc(brl(tot["prov"]))}</b></td>
             <td class="num"><b>{esc(brl(tot["emp"]))}</b></td>
             <td class="num anchor"><b>{esc(brl(tot["cred"]))}</b></td>
-            <td>—</td>
+            <td>—</td><td>—</td>
           </tr>
         </tfoot>
       </table>
     </div>
+    <p class="sec-nota" style="margin-top:8px;"><b>Saldo estimado da NC.</b> O Tesouro Gerencial não vincula empenho a NC. O saldo exato é o da célula UG · PI · ND; a distribuição entre NCs presume consumo das mais antigas primeiro (o saldo remanescente fica nas NCs mais recentes da célula).</p>
     <div class="tbl-tools" style="margin-top:10px;justify-content:space-between;" id="paginacao-catr">
       <span class="pag-info" id="pag-catr-txt" style="font-size:0.8125rem;color:var(--ink-muted);font-weight:600;">Página 1 de {tot_paginas_catr} (Exibindo 1–{min(25, len(linhas))} de {len(linhas)})</span>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -2513,12 +2917,24 @@ def secao_operacao_catrimani(catr, data_str, periodo):
     return frag
 
 
+def selo_integridade_html(catr):
+    ig = (catr or {}).get("integridade")
+    if not ig:
+        return ""
+    pos = ig.get("posicao") or ""
+    pos_txt = f"{pos[8:10]}/{pos[5:7]}" if len(pos) >= 10 else "—"
+    if ig["ok"]:
+        return (f'<p class="selo-integridade" style="color:#15803D;font-weight:700;">✔ Invariantes: Recebido − Concedido − Empenhado = Disponível em {ig["n_ug"]} UG · '
+                f'Saldo das NCs = saldo da célula · Fonte: posição {pos_txt}</p>')
+    itens = "; ".join(esc(f) for f in ig["falhas"][:5])
+    return f'<p class="selo-integridade" style="color:#B91C1C;font-weight:700;">✖ Invariantes violados: {itens}</p>'
+
 def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_data=None, omds_totais=None):
     hist_frag, histdata = secao_historico_ncs(res, hist, data_str, periodo, catrimani_data)
 
     frags, CEL, NCD, DAY, TELA = [], {}, {}, {}, {}
     for u in UNIDADES:
-        hist_u = [{"data": h.get("data"),
+        hist_u = [{"data": h.get("data"), "posicao": h.get("posicao"),
                    "total": {"cred": round(h.get(u["ogu"], {}).get("cred", 0.0)
                                            + h.get(u["fex"], {}).get("cred", 0.0), 2)}}
                   for h in hist]
@@ -2530,7 +2946,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     if ranking_frag:
         frags.append(ranking_frag)
 
-    catrimani_frag = secao_operacao_catrimani(catrimani_data, data_str, periodo) if catrimani_data else ""
+    catrimani_frag = secao_operacao_catrimani(catrimani_data, data_str, periodo, hist) if catrimani_data else ""
     if catrimani_frag:
         frags.append(catrimani_frag)
     frags.append(hist_frag)
@@ -2599,7 +3015,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     </div>
   </div>
   <div class="topbar-r">
-    <div class="selo-wrap"><span class="selo"><span class="live-dot" aria-hidden="true"></span> Posição {esc(posicao)}</span><span class="selo-delay">⏱ dados com ~24h de defasagem</span></div>
+    <div class="selo-wrap"><span class="selo"><span class="live-dot" aria-hidden="true"></span> Posição {esc(posicao)}</span><span class="selo-delay">⏱ {esc(txt_defasagem(True))}</span></div>
     <button class="theme" id="themeBtn" aria-pressed="false" aria-label="Alternar tema claro/escuro" onclick="bcmsTheme()" title="Alternar tema">
       <svg viewBox="0 0 24 24" class="ic-sun" aria-hidden="true"><circle cx="12" cy="12" r="4.5" style="fill:currentColor"/><g style="stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M12 2v2.5M12 19.5v2.5M2 12h2.5M19.5 12h2.5M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M19.07 4.93l-1.77 1.77M6.7 17.3l-1.77 1.77"/></g></svg>
       <svg viewBox="0 0 24 24" class="ic-moon" aria-hidden="true"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z" style="fill:currentColor"/></svg>
@@ -2620,7 +3036,8 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
 <footer class="rodape">
   <p class="rodape-brand">⚙ 6º Batalhão de Engenharia de Construção · Operação Catrimani II · Comando Militar da Amazônia</p>
   <p><b>Metodologia:</b> Crédito Disponível = Provisão Recebida − Provisão Concedida − Despesas Empenhadas (saldo líquido não empenhado no Tesouro Gerencial / SIAFI). O detalhe é o saldo real por célula orçamentária (Ação · PI · ND). A aba Catrimani consolida o acompanhamento inter-unidades de todas as UGs executoras da Ação 21EM.</p>
-  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ Dados com defasagem de aproximadamente 24 horas.</b> · Painel atualizado em {esc(ger)} (Horário de Brasília)</p>
+  {selo_integridade_html(catrimani_data)}
+  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ {esc(txt_defasagem())}.</b> · Painel atualizado em {esc(ger)} (Horário de Brasília)</p>
   <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 3º Sgt De Campos (BCMS) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> TC Saldanha (Ba Ap Log)</p>
 </footer>
 <script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};</script>
@@ -3801,6 +4218,8 @@ select option:checked, .flt option:checked, .hist-select option:checked {
   padding: 6px 10px; cursor: pointer;
 }
 .flt-limpa:hover { color: var(--danger); border-color: var(--danger); }
+.prazo-cel { background: none; border: 0; padding: 2px 4px; font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline dotted; }
+.prazo-cel:hover, .prazo-cel:focus-visible { background: var(--track); border-radius: 4px; }
 .flt-limpa:disabled, .btn-pag:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 .flt-resumo { font-size: 0.8125rem; color: var(--ink-muted); font-weight: 600; }
 .flt-resumo.on { color: var(--primary); }
@@ -4889,7 +5308,7 @@ function trocaOMDS(btn){
     if(esc)esc.textContent='OPERAÇÃO CONJUNTA · TERRITÓRIO INDÍGENA YANOMAMI / RORAIMA';
     var t=document.getElementById('uTitulo');if(t)t.textContent='Operação Catrimani II — Execução Orçamentária Multi-UGs';
     var n=document.getElementById('uNome');if(n)n.textContent='Ação Governamental 21EM · Comando Militar da Amazônia (CMA)';
-    var uu=document.getElementById('uUasg');if(uu)uu.textContent='Acompanhamento Orçamentário de 10 Unidades Gestoras Executoras';
+    var uu=document.getElementById('uUasg');if(uu)uu.textContent='Acompanhamento Orçamentário de '+(CATRDATA&&CATRDATA.por_ug?CATRDATA.por_ug.length:'')+' Unidades Gestoras Executoras';
     try{document.title='Operação Catrimani II — Execução Orçamentária';}catch(e){}
     if(!CATR_INITIALIZED){
       bcmsInitCatrimani();
@@ -5932,8 +6351,24 @@ function bcmsFormatCatrItem(cl){
     });
   }
 
+  /* Mesma NC na mesma UG pode ter várias ND: agrupa para exibição */
+  var irmaos = [];
+  if(typeof CATRDATA !== 'undefined' && CATRDATA && CATRDATA.linhas){
+    CATRDATA.linhas.forEach(function(o){
+      if(o.nc === cl.nc && o.ug === cl.ug){ irmaos.push({nd: o.nd, prov: o.prov || 0, cred: o.cred || 0, chave: o.chave}); }
+    });
+  }
+
   return {
-    hid: cl.nc,
+    catr: true,
+    hid: cl.chave || cl.nc,
+    chave: cl.chave,
+    irmaos: irmaos.length > 1 ? irmaos : null,
+    saldo_celula: cl.saldo_celula,
+    situacao_prazo: cl.situacao_prazo,
+    prazo: cl.prazo,
+    dias_para_prazo: cl.dias_para_prazo,
+    trava_nd_ugr: cl.trava_nd_ugr,
     nc: cl.nc,
     op: cl.op || (isDet ? 'DETALHAMENTO DE CREDITO' : 'DESCENTRALIZACAO DE CREDITO'),
     dia: cl.dia || '—',
@@ -6120,11 +6555,27 @@ function bcmsDetalheNC(hid){
   h += '        <span class="m-fin-sub">' + pEmp.toFixed(1) + '% consumido da dotação</span>';
   h += '      </div>';
   h += '      <div class="m-fin-card hero-saldo">';
-  h += '        <span class="m-fin-label" style="color:#10B981;">Saldo Disponível em Tela</span>';
+  h += '        <span class="m-fin-label" style="color:#10B981;">' + (item.catr ? 'Saldo estimado da NC' : 'Saldo Disponível em Tela') + '</span>';
   h += '        <span class="m-fin-val-hero">' + bcmsBRL(cred) + '</span>';
   h += '        <span class="m-fin-tag-hero">✓ ' + pCred.toFixed(1) + '% remanescente líquido</span>';
   h += '      </div>';
   h += '    </div>';
+  if(item.catr){
+    h += '    <div class="m-justif-card" style="border-left-color:#0EA5E9;margin-top:10px;">';
+    h += '      <div class="m-justif-header"><span class="m-justif-title">Saldo exato × estimado</span></div>';
+    h += '      <p style="margin:0 0 6px;font-size:0.8125rem;"><b>Saldo exato da célula UG · PI · ND:</b> ' + bcmsBRL(item.saldo_celula || 0) + '</p>';
+    h += '      <p style="margin:0;font-size:0.75rem;color:var(--ink-muted);">O Tesouro Gerencial não vincula empenho a NC. O saldo exato é o da célula UG · PI · ND; a distribuição entre NCs presume consumo das mais antigas primeiro.</p>';
+    if(item.situacao_prazo && cred > 0.005){
+      h += '      <p style="margin:8px 0 0;font-size:0.8125rem;"><b>Prazo de empenho:</b> ' + bcmsEsc(item.situacao_prazo) +
+           (item.prazo ? ' (' + item.prazo.slice(8,10) + '/' + item.prazo.slice(5,7) + '/' + item.prazo.slice(0,4) + ')' : '') +
+           (item.trava_nd_ugr ? ' · 🔒 ND/UGR travada (só o órgão repassador altera)' : '') + '</p>';
+    }
+    if(item.irmaos){
+      var partes = item.irmaos.map(function(o){ return bcmsEsc(o.nd) + ': ' + bcmsBRL(o.prov); });
+      h += '      <p style="margin:8px 0 0;font-size:0.8125rem;"><b>Esta NC, por ND:</b> ' + partes.join(' · ') + '</p>';
+    }
+    h += '    </div>';
+  }
 
   /* Pipeline 3 Estágios */
   h += '    <div class="m-pipeline-card">';
@@ -6167,7 +6618,7 @@ function bcmsDetalheNC(hid){
   /* Seção 3: Classificação Orçamentária */
   h += '  <div class="m-class-grid">';
   h += '    <div class="m-class-card">';
-  h += '      <span class="m-class-label">PTRES / Ação Orçamentária</span>';
+  h += '      <span class="m-class-label">Ação Orçamentária</span>';
   h += '      <span class="m-class-code">' + bcmsEsc(item.ptres || '—') + '</span>';
   h += '      <span class="m-class-desc">' + bcmsEsc(item.acao_desc || 'Ação Governamental') + '</span>';
   h += '    </div>';
@@ -6304,7 +6755,7 @@ function bcmsExportHistoricoExcel(){
     return;
   }
   var filename = 'historico_notas_credito_2026_' + (new Date().toISOString().slice(0, 10));
-  var headers = ['Data', 'Número da NC', 'UG Emitente (Cód)', 'UG Emitente (Nome)', 'UG Favorecida (Cód)', 'UG Favorecida (OM)', 'PTRES / Ação', 'Fonte', 'PI', 'ND', 'Valor Original (R$)', 'Valor Executado (R$)', 'Saldo Atual (R$)', 'Status', 'Justificativa / Objeto'];
+  var headers = ['Data', 'Número da NC', 'UG Emitente (Cód)', 'UG Emitente (Nome)', 'UG Favorecida (Cód)', 'UG Favorecida (OM)', 'Ação', 'Fonte', 'PI', 'ND', 'Valor Original (R$)', 'Valor Executado (R$)', 'Saldo Atual (R$)', 'Status', 'Justificativa / Objeto'];
 
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<?mso-application progid="Excel.Sheet"?>\n' +
@@ -6659,7 +7110,7 @@ function bcmsExportUHistExcel(sfx, sigla){
   }
   var omNome = sigla || sfx;
   var filename = 'historico_ncs_' + omNome.toLowerCase().replace(/[\s·]+/g, '_') + '_' + (new Date().toISOString().slice(0, 10));
-  var headers = ['Data', 'Número da NC', 'UG Emitente (Cód)', 'UG Emitente (Nome)', 'UG Favorecida (Cód)', 'UG Favorecida (OM)', 'PTRES / Ação', 'Fonte', 'PI', 'ND', 'Valor Original (R$)', 'Valor Executado (R$)', 'Saldo Atual (R$)', 'Status', 'Justificativa / Objeto'];
+  var headers = ['Data', 'Número da NC', 'UG Emitente (Cód)', 'UG Emitente (Nome)', 'UG Favorecida (Cód)', 'UG Favorecida (OM)', 'Ação', 'Fonte', 'PI', 'ND', 'Valor Original (R$)', 'Valor Executado (R$)', 'Saldo Atual (R$)', 'Status', 'Justificativa / Objeto'];
 
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<?mso-application progid="Excel.Sheet"?>\n' +
@@ -6791,9 +7242,13 @@ function bcmsDetalheOMDS(key){
   if(key === 'RM12' || (u.sigla && u.sigla.indexOf('12ª RM') !== -1)){
     h += '<div style="background:rgba(245, 158, 11, 0.12);border:1px solid rgba(245, 158, 11, 0.35);border-radius:8px;padding:12px 16px;margin:12px 0 16px 0;font-size:0.83rem;line-height:1.55;color:var(--ink);">';
     h += '<b>⚖️ Auditoria Orçamentária da 12ª Região Militar (SIAFI):</b><br>';
-    h += '• <b>Subsistência Regional:</b> A 12ª RM atua como polo centralizador de alimentação para todas as tropas da Amazônia Ocidental (AM, RR, RO, AC). Cerca de <b>R$ 34,36 Milhões (60%)</b> referem-se exclusivamente à <b>Ação 212B (Alimentação das Forças Armadas)</b>.<br>';
-    h += '• <b>Repasses Descentralizados:</b> Foram concedidos <b>R$ 2.994.525,82 em provisões repassadas</b> a outras OMs (dos quais R$ 1.356.547,72 transferidos diretamente para as demais OMDS deste painel). A dotação líquida real para empenho é de <b>' + bcmsFmtBRL(provLiq) + '</b>.<br>';
-    h += '• <b>Operação Catrimani (Ação 21EM):</b> Na Operação Catrimani, a dotação da 12ª RM é de <b>R$ 30.420,00</b> (recursos específicos detalhados na aba Catrimani).';
+    var ac212 = (u.acoes && u.acoes['212B']) || 0;
+    var ac21em = (u.acoes && u.acoes['21EM']) || 0;
+    if(ac212 > 0.005){
+      h += '• <b>Subsistência Regional:</b> A 12ª RM atua como polo centralizador de alimentação para as tropas da Amazônia Ocidental. <b>' + bcmsFmtBRL(ac212) + ' (' + (prov > 0 ? (ac212 / prov * 100).toFixed(0) : '0') + '%)</b> referem-se exclusivamente à <b>Ação 212B (Alimentação das Forças Armadas)</b>.<br>';
+    }
+    h += '• <b>Repasses Descentralizados:</b> Foram concedidos <b>' + bcmsFmtBRL(conc) + ' em provisões repassadas</b> a outras OMs (dos quais ' + bcmsFmtBRL(u.repasse_omds || 0) + ' transferidos diretamente para as demais OM deste painel). A dotação líquida real para empenho é de <b>' + bcmsFmtBRL(provLiq) + '</b>.<br>';
+    h += '• <b>Operação Catrimani (Ação 21EM):</b> Na Operação Catrimani, a dotação da 12ª RM é de <b>' + bcmsFmtBRL(ac21em) + '</b> (recursos específicos detalhados na aba Catrimani).';
     h += '</div>';
   }
 
@@ -6899,6 +7354,7 @@ function bcmsLimparFiltrosCatrimani(){
   var inUg = document.getElementById('flt-catr-ug'); if(inUg) inUg.value = '';
   var inFonte = document.getElementById('flt-catr-fonte'); if(inFonte) inFonte.value = '';
   var inSaldo = document.getElementById('flt-catr-saldo'); if(inSaldo) inSaldo.value = '';
+  var inPrazo = document.getElementById('flt-catr-prazo'); if(inPrazo) inPrazo.value = '';
   bcmsFiltraCatrimani();
   bcmsToast('Filtros da Operação Catrimani redefinidos');
 }
@@ -6925,6 +7381,7 @@ function bcmsFiltraCatrimani(){
   var fug = (document.getElementById('flt-catr-ug') ? document.getElementById('flt-catr-ug').value.trim() : '');
   var ffonte = (document.getElementById('flt-catr-fonte') ? document.getElementById('flt-catr-fonte').value.trim() : '');
   var fsaldo = (document.getElementById('flt-catr-saldo') ? document.getElementById('flt-catr-saldo').value.trim() : '');
+  var fprazo = (document.getElementById('flt-catr-prazo') ? document.getElementById('flt-catr-prazo').value.trim() : '');
   var q = (document.getElementById('flt-catr-busca') ? document.getElementById('flt-catr-busca').value.toLowerCase().trim() : '');
 
   var tokens = q ? q.split(/\s+/).filter(Boolean) : [];
@@ -6932,6 +7389,7 @@ function bcmsFiltraCatrimani(){
   CATR_FILTERED = CATRDATA.linhas.filter(function(it){
     if(fug && it.ug !== fug) return false;
     if(ffonte && String(it.ug).indexOf(ffonte) !== 0) return false;
+    if(fprazo && (it.situacao_prazo !== fprazo || it.cred <= 0.005)) return false;
     if(fsaldo){
       if(fsaldo === 'com_saldo' && (it.cred <= 0.01 || it.is_det)) return false;
       if(fsaldo === 'zerada' && (it.cred > 0.01 || it.is_det)) return false;
@@ -6967,6 +7425,45 @@ function bcmsFmtBRL(v){
   return bcmsBRL(v || 0);
 }
 
+function bcmsFiltraPrazo(ug, sit){
+  var sUg = document.getElementById('flt-catr-ug'); if(sUg) sUg.value = ug || '';
+  var sPz = document.getElementById('flt-catr-prazo'); if(sPz) sPz.value = sit || '';
+  var sSd = document.getElementById('flt-catr-saldo'); if(sSd) sSd.value = '';
+  var sFt = document.getElementById('flt-catr-fonte'); if(sFt) sFt.value = '';
+  var sBq = document.getElementById('flt-catr-busca'); if(sBq) sBq.value = '';
+  bcmsFiltraCatrimani();
+  var tab = document.getElementById('tab-catrimani-ncs');
+  if(tab && tab.scrollIntoView) tab.scrollIntoView({behavior: 'smooth', block: 'start'});
+  bcmsToast('Extrato filtrado: ' + (ug || 'todas as UG') + ' · ' + (sit || 'todos os prazos'));
+}
+
+function bcmsCopiarTexto(btn){
+  var txt = btn.getAttribute('data-texto') || '';
+  var ok = function(){
+    bcmsToast('📋 Texto de cobrança copiado');
+    var old = btn.innerHTML; btn.innerHTML = '✓ Copiado!';
+    setTimeout(function(){ btn.innerHTML = old; }, 1800);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(ok).catch(function(){ window.prompt('Copie o texto:', txt); });
+  } else {
+    var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch(e) { window.prompt('Copie o texto:', txt); }
+    document.body.removeChild(ta);
+  }
+}
+
+function bcmsPrazoPill(it){
+  if(!(it.cred > 0.005)) return '<span class="tbl-om-sub">—</span>';
+  var cores = {'VENCIDO':'#EF4444','VENCE EM ≤7 DIAS':'#EA580C','VENCE EM ≤30 DIAS':'#D97706','EMPENHO IMEDIATO':'#2563EB','SEM PRAZO NA NC':'#64748B','PRAZO > 30 DIAS':'#10B981'};
+  var extra = '';
+  if(it.dias_para_prazo !== null && it.dias_para_prazo !== undefined){
+    extra = it.dias_para_prazo < 0 ? ' · há ' + (-it.dias_para_prazo) + 'd' : ' · ' + it.dias_para_prazo + 'd';
+  }
+  return '<span class="pill-nd" style="background:var(--track);color:' + (cores[it.situacao_prazo] || '#64748B') + ';font-weight:700;" title="Prazo lido do objeto da NC">' +
+         bcmsEsc(it.situacao_prazo || '') + bcmsEsc(extra) + (it.trava_nd_ugr ? ' 🔒' : '') + '</span>';
+}
+
 function bcmsRenderCatrimani(pag){
   var p = parseInt(pag, 10);
   if(isNaN(p) || p < 1) p = 1;
@@ -6987,7 +7484,7 @@ function bcmsRenderCatrimani(pag){
 
   var h = '';
   if(!slice.length){
-    h = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--ink-muted);">Nenhuma Nota de Crédito encontrada com os filtros selecionados.</td></tr>';
+    h = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--ink-muted);">Nenhuma Nota de Crédito encontrada com os filtros selecionados.</td></tr>';
   } else {
     slice.forEach(function(it){
       var stCor, stTxt, ndDisp;
@@ -7012,8 +7509,9 @@ function bcmsRenderCatrimani(pag){
         stTxt = "Empenhada";
         ndDisp = bcmsEsc(it.nd) + ' <span class="tbl-om-sub">' + bcmsEsc((it.nd_desc || '').slice(0, 20)) + '</span>';
       }
-      h += '<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'' + (it.nc || '') + '\')" ' +
-           'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();bcmsOpenNCModalManual(\'' + (it.nc || '') + '\');}" ' +
+      var idLinha = it.chave || it.nc || '';
+      h += '<tr class="tr-click" tabindex="0" role="button" onclick="bcmsOpenNCModalManual(\'' + idLinha + '\')" ' +
+           'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();bcmsOpenNCModalManual(\'' + idLinha + '\');}" ' +
            'title="Clique para abrir a ficha cadastral completa desta NC">' +
            '<td>' + (it.dia || '') + '</td>' +
            '<td><b class="nc-mono">' + (it.nc || '') + '</b></td>' +
@@ -7025,6 +7523,7 @@ function bcmsRenderCatrimani(pag){
            '<td class="num">' + bcmsFmtBRL(it.emp) + '</td>' +
            '<td class="num anchor" style="font-weight:700;">' + bcmsFmtBRL(it.cred) + '</td>' +
            '<td><span class="pill-nd" style="background:var(--track);color:' + stCor + ';font-weight:700;">' + stTxt + '</span></td>' +
+           '<td>' + bcmsPrazoPill(it) + '</td>' +
            '</tr>';
     });
   }
@@ -7062,7 +7561,7 @@ function bcmsRenderCatrimani(pag){
       '<td class="num"><b>' + bcmsFmtBRL(sumProv) + '</b></td>' +
       '<td class="num"><b>' + bcmsFmtBRL(sumEmp) + '</b></td>' +
       '<td class="num anchor"><b>' + bcmsFmtBRL(sumCred) + '</b></td>' +
-      '<td>—</td>' +
+      '<td>—</td><td>—</td>' +
       '</tr>';
   }
 
@@ -7218,7 +7717,7 @@ function bcmsDetalheUG(codUg){
     h += '      <span style="font-size:0.75rem;color:var(--ink-muted);">Clique em qualquer NC para ver a ficha cadastral</span>';
     h += '    </div>';
     h += '    <div class="tbl-scroll" style="max-height:260px;"><table class="det det-compact" style="width:100%;font-size:0.78125rem;">';
-    h += '      <thead><tr><th>Emissão</th><th>Número NC</th><th>ND</th><th class="num">Recebido</th><th class="num">Empenhado</th><th class="num">Saldo Disp.</th><th>Status</th></tr></thead><tbody>';
+    h += '      <thead><tr><th>Emissão</th><th>Número NC</th><th>ND</th><th class="num">Recebido</th><th class="num">Empenhado</th><th class="num" title="Estimado: o saldo exato é o da célula UG · PI · ND">Saldo estimado</th><th>Status</th></tr></thead><tbody>';
     for(var mIdx = 0; mIdx < u.ncs.length; mIdx++){
       var nco = u.ncs[mIdx];
       var sColor, sText, ndShow;
@@ -7243,7 +7742,7 @@ function bcmsDetalheUG(codUg){
         sText = 'Empenhada';
         ndShow = nco.nd || '—';
       }
-      h += '<tr class="tr-click" onclick="bcmsOpenNCModalManual(\'' + bcmsEsc(nco.nc) + '\')" title="Abrir ficha da NC ' + bcmsEsc(nco.nc) + '">' +
+      h += '<tr class="tr-click" onclick="bcmsOpenNCModalManual(\'' + bcmsEsc(nco.chave || nco.nc) + '\')" title="Abrir ficha da NC ' + bcmsEsc(nco.nc) + '">' +
            '<td>' + bcmsEsc(nco.dia || '—') + '</td>' +
            '<td><b class="nc-mono" style="color:var(--primary-600);">' + bcmsEsc(nco.nc) + '</b></td>' +
            '<td class="mono2">' + bcmsEsc(ndShow) + '</td>' +
@@ -7319,8 +7818,12 @@ function bcmsExportCatrimaniExcel(){
     '    <Cell><Data ss:Type="String">OBJETO / JUSTIFICATIVA</Data></Cell>\n' +
     '    <Cell><Data ss:Type="String">RECEBIDO (R$)</Data></Cell>\n' +
     '    <Cell><Data ss:Type="String">EMPENHADO (R$)</Data></Cell>\n' +
-    '    <Cell><Data ss:Type="String">DISPONÍVEL (R$)</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">SALDO ESTIMADO DA NC (R$)</Data></Cell>\n' +
     '    <Cell><Data ss:Type="String">STATUS</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">PRAZO DE EMPENHO</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">SITUAÇÃO DO PRAZO</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">TRAVA ND/UGR</Data></Cell>\n' +
+    '    <Cell><Data ss:Type="String">SALDO EXATO DA CÉLULA UG·PI·ND (R$)</Data></Cell>\n' +
     '   </Row>\n';
 
   list.forEach(function(it){
@@ -7341,6 +7844,10 @@ function bcmsExportCatrimaniExcel(){
       '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.emp || 0) + '</Data></Cell>\n' +
       '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.cred || 0) + '</Data></Cell>\n' +
       '    <Cell><Data ss:Type="String">' + (it.status || '') + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + (it.prazo || '') + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + (it.situacao_prazo || '') + '</Data></Cell>\n' +
+      '    <Cell><Data ss:Type="String">' + (it.trava_nd_ugr ? 'SIM' : '') + '</Data></Cell>\n' +
+      '    <Cell ss:StyleID="sMoeda"><Data ss:Type="Number">' + (it.saldo_celula || 0) + '</Data></Cell>\n' +
       '   </Row>\n';
   });
 
@@ -7365,16 +7872,32 @@ def main():
     ap.add_argument("--url", help="URL do CSV ou planilha publicada no Google Sheets")
     ap.add_argument("--date", help="data do snapshot YYYY-MM-DD (default: hoje)")
     ap.add_argument("--file-id", default=(os.environ.get("DRIVE_FILE_ID") or DEFAULT_FILE_ID))
+    ap.add_argument("--hist-file", help="histórico alternativo (testes locais); default data/history.json")
+    ap.add_argument("--sem-trava-posicao", action="store_true",
+                    help="só para teste: permite fonte com posição anterior à já publicada")
     args = ap.parse_args()
+    global POSICAO_DADOS, DATA_EXEC
 
     data_str = args.date or datetime.date.today().isoformat()
     target = args.local or args.url or os.environ.get("SHEETS_CSV_URL") or args.file_id
     path = args.local if (args.local and os.path.exists(args.local)) else baixar(target)
     print("Fonte:", path)
-    res, periodo, alertas, catrimani_data, omds_totais = etl(path)
+    DATA_EXEC = data_str
+    res, periodo, alertas, catrimani_data, omds_totais = etl(path, hoje=datetime.date.fromisoformat(data_str))
     for a in alertas:
         print("[ALERTA]", a)
-    hist = atualizar_historico(res, data_str)
+
+    # Trava anti-dado-velho: a posição dos dados nunca pode recuar em relação à já publicada.
+    histfile = args.hist_file or HISTFILE
+    pos = catrimani_data.get("posicao", "")
+    ultima = max((h.get("posicao") for h in carregar_historico(histfile) if h.get("posicao")), default=None)
+    if ultima and pos and pos < ultima and not args.sem_trava_posicao:
+        raise SystemExit(f"Fonte com posição {pos} anterior à já publicada {ultima}. Abortado sem publicar.")
+    ig = catrimani_data.get("integridade", {"ok": True, "falhas": []})
+    if not ig["ok"]:
+        raise SystemExit("Integridade violada — publicação bloqueada:\n  " + "\n  ".join(ig["falhas"]))
+    POSICAO_DADOS = pos
+    hist = atualizar_historico(res, data_str, catrimani_data, histfile)
     html_out = montar_pagina(res, hist, data_str, periodo, alertas, catrimani_data, omds_totais)
 
     os.makedirs(SITE, exist_ok=True)

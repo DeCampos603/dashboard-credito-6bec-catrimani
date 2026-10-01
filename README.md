@@ -22,7 +22,7 @@ Este repositório foi construído de forma **100% autônoma e isolada**, utiliza
    - Rastreamento de remanejamentos de despesa (trocas de ND via notas de crédito anula/reforço).
 
 2. **🎖️ Operação Catrimani II (Ação 21EM / Terra Indígena Yanomami)**:
-   - Painel de controle inter-unidades com as **10 UGs executoras**:
+   - Painel de controle inter-unidades com as UGs executoras **presentes na fonte do dia** (9 na posição de 11/09/2026). Só entra a **Ação 21EM** (PIs `OCS90001000`, `OCS90001001` e `OCS90001002`/DGO); NCs de outras Ações que citam a operação aparecem num quadro à parte, que não soma:
      - CMDO FRON RR / 7º BIS (160352)
      - CMDO 1ª BDA INF SL (160482)
      - 6º B E CNST (160353)
@@ -34,7 +34,9 @@ Este repositório foi construído de forma **100% autônoma e isolada**, utiliza
      - CMDO 12ª RM (160014)
      - PQ R MNT/12 (160021)
    - Gráfico de pizza/distribuição por Natureza de Despesa (NDs).
-   - Tabela integral com **788 Notas de Crédito**, busca em tempo real por UG, ND, Favorecido, Emitente, Objeto e **exportação direta para Excel (.xlsx)**.
+   - **Quadro de Prazos de Empenho** (UG × vencido / ≤7 dias / ≤30 dias / imediato / sem prazo), lido do objeto da NC por `regras_nc.py`.
+   - Saldo por NC é **estimado** (o TG não vincula empenho a NC); o exato é o da célula UG · PI · ND. O rodapé traz o selo de invariantes; se falhar, a publicação é bloqueada.
+   - Tabela integral com todas as Notas de Crédito (contagem calculada na página), busca em tempo real por UG, ND, Favorecido, Emitente, Objeto e **exportação direta para Excel (.xlsx)**.
 
 ---
 
@@ -51,8 +53,10 @@ Dashboard-Credito-6BEC-Catrimani/
 │       ├── 6BEC.png                # Brasão do 6º Batalhão de Engenharia de Construção
 │       └── CATRIMANI.png           # Distintivo oficial da Operação Catrimani
 ├── data/
-│   ├── CRÉDITO DISP 160353.xlsx    # Base de dados oficial do Tesouro Gerencial
 │   └── history.json                # Histórico temporal consolidado dia a dia
+├── tests/fixtures/
+│   └── credito_disp_11set2026.xlsx # Massa de teste (posição de 11/09/2026) — NÃO é fonte de reserva
+├── regras_nc.py                    # Prazo de empenho e trava de ND/UGR (dashboard e e-mail)
 ├── site/
 │   ├── assets/logos/               # Assets estáticos para publicação web
 │   ├── data/history.json           # Espelho do histórico para consumo no front-end
@@ -84,8 +88,9 @@ python relatorio_email_6bec.py --dry-run
 ### 3. Gerar o Dashboard Web
 Lê a planilha local ou faz o download seguro via Google Drive / Google Sheets:
 ```bash
-python gerar_dashboard.py --local "data/CRÉDITO DISP 160353.xlsx"
+python gerar_dashboard.py --local "caminho/da/exportacao.xlsx"      # export do dia
 ```
+Sem fonte (`SHEETS_CSV_URL`, `--url` ou `--local`) o gerador **falha** e o site do dia anterior continua no ar: não há mais fallback para planilha antiga. A posição dos dados (maior data de NC) nunca pode recuar em relação à já publicada. Para testes: `--hist-file` e `--sem-trava-posicao`.
 O arquivo final é salvo em `site/index.html` e pode ser aberto em qualquer navegador moderno.
 
 ---
@@ -124,9 +129,40 @@ Não — o site mostra **números diferentes com escopos diferentes**, e é fác
 |---|---|---|
 | "Crédito Disponível em Tela" (topo do Resumo) | Saldo livre de **todas** as Ações Orçamentárias do 6º BEC (OGU + FEx) | 6º BEC inteiro |
 | "Créditos Livres — Exclusivo Ação 21EM" (e-mail, Seção 3) | Saldo livre **só** da Operação Catrimani II dentro do 6º BEC | 6º BEC · só 21EM |
-| "Crédito Disponível na Catrimani" (Painel Catrimani, Seção 4) | Saldo livre da 21EM somando as **10 UGs executoras**, não só o 6º BEC | Multi-UG · só 21EM |
+| "Crédito Disponível na Catrimani" (Painel Catrimani, Seção 4) | Saldo livre da 21EM somando as UGs executoras da fonte, não só o 6º BEC | Multi-UG · só 21EM |
 
 Ao comparar um número citado verbalmente pela unidade com o site, confirme sempre **qual dessas três linhas** está sendo referida.
+
+---
+
+## 🧮 Módulo `credito_disponivel/` — Crédito Disponível para Empenho por Operação
+
+Módulo independente (não altera `gerar_dashboard.py` nem `relatorio_email_6bec.py`) que lê um ou mais
+exports **"CRÉDITO DISP"** do Tesouro Gerencial, isola a **Operação Catrimani II** e gera:
+
+- `saida/credito_disponivel_catrimani_AAAA-MM-DD.html` — dashboard autocontido (KPIs, tabela analítica com
+  drill-down por NC, agrupamento por UG / Ação·PI / ND / Grupo·Elemento / NC, filtros, alertas, RP, exportação CSV);
+- `...pdf` — relatório detalhado; `...json` — dados em centavos inteiros para integração.
+
+```bash
+py -3 -m credito_disponivel --entrada "tests/fixtures/credito_disp_11set2026.xlsx" --entrada "C:/caminho/CRÉDITO DISP.xlsx" --hoje 22/09/2026
+py -3 -m pytest tests -q
+```
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `leitor_tg.py` | Lê o export localizando colunas **pelo nome** (robusto ao deslocamento de "Destaque Recebido"), `Decimal`, COALESCE, máscara de CPF |
+| `regras.py` | Filtro da operação (Ação 21EM · PIs OCS90001/80001/7001x · termo "CATRIMANI"), fórmula por célula, atribuição FIFO por NC, prazos de empenho, status |
+| `auditoria.py` | Alertas: empenho > crédito, divergência de conciliação, prazo vencido/a vencer, saldo residual, ND genérica, RP, defasagem do export |
+| `dashboard_html.py` / `relatorio_pdf.py` | Saídas HTML e PDF |
+
+**Fórmula (por célula UG × Ação × PTRES × PI × Fonte × ND):**
+`Disponível = Bruto recebido − Anulações/Devoluções − Concedido ± Detalhamento − Empenhado − Pré-empenho − Bloqueio`.
+O saldo exibido é sempre o item **CRÉDITO DISPONÍVEL** do SIAFI; a fórmula é a prova — divergência vira alerta.
+
+**Limitações do export atual** (aparecem como `n/d` / pendência, nunca como zero): PTRES, Fonte de Recursos,
+Crédito Pré-Empenhado e Crédito Bloqueado não estão no relatório do TG. Incluir esses atributos/itens no relatório
+habilita as colunas automaticamente. Se a mesma UG vier em dois exports, vale o de NC mais recente.
 
 ---
 
