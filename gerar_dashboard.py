@@ -2806,6 +2806,8 @@ def secao_operacao_catrimani(catr, data_str, periodo, hist=None):
     <div class="kpis">{kpis_html}</div>
   </section>
 
+  {aviso_integridade_html(catr)}
+
   {fila_d10_html(catr)}
 
   {alerta_nd_generica_html(catr)}
@@ -2916,6 +2918,16 @@ def secao_operacao_catrimani(catr, data_str, periodo, hist=None):
 
     return frag
 
+
+def aviso_integridade_html(catr):
+    ig = (catr or {}).get("integridade") or {}
+    if ig.get("ok", True):
+        return ""
+    li = "".join(f"<li>{esc(f)}</li>" for f in ig.get("falhas", [])[:6])
+    return ('<section class="sec"><div class="audit-banner-card" style="border:1px solid rgba(239,68,68,0.5);background:rgba(239,68,68,0.08);border-radius:12px;padding:14px 18px;">'
+            '<b>⚠️ Observação — inconsistência na fonte (Tesouro Gerencial):</b> a conta Recebido − Concedido − Empenhado = Disponível não fecha. '
+            'O crédito disponível exibido é o informado pelo TG; o <b>empenhado</b> da UG pode estar subestimado. Confirmar com a Seção de Orçamento.'
+            f'<ul style="margin:6px 0 0 18px;">{li}</ul></div></section>')
 
 def selo_integridade_html(catr):
     ig = (catr or {}).get("integridade")
@@ -7894,8 +7906,11 @@ def main():
     if ultima and pos and pos < ultima and not args.sem_trava_posicao:
         raise SystemExit(f"Fonte com posição {pos} anterior à já publicada {ultima}. Abortado sem publicar.")
     ig = catrimani_data.get("integridade", {"ok": True, "falhas": []})
+    # Invariante violado = inconsistência da própria fonte (TG), não do gerador: publica com o selo vermelho
+    # e a observação visível na aba, em vez de derrubar o site inteiro.
     if not ig["ok"]:
-        raise SystemExit("Integridade violada — publicação bloqueada:\n  " + "\n  ".join(ig["falhas"]))
+        for f in ig["falhas"]:
+            print("[INTEGRIDADE]", f)
     POSICAO_DADOS = pos
     hist = atualizar_historico(res, data_str, catrimani_data, histfile)
     html_out = montar_pagina(res, hist, data_str, periodo, alertas, catrimani_data, omds_totais)
