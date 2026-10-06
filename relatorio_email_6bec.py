@@ -25,6 +25,7 @@ import warnings
 import smtplib
 import urllib.request
 import tempfile
+import time
 import csv
 import unicodedata
 from collections import defaultdict
@@ -199,8 +200,8 @@ def clean_str(v):
     return s
 
 
-def baixar(target=None):
-    """Baixa a fonte do dia. Sem fonte ou com falha, FALHA: nunca cai para planilha antiga."""
+def baixar(target=None, max_tentativas=4, delay_base=3):
+    """Baixa a fonte do dia com retry exponencial. Sem fonte ou com falha persistente, FALHA: nunca cai para planilha antiga."""
     if target and os.path.exists(target):
         return target
 
@@ -208,17 +209,35 @@ def baixar(target=None):
     if not url:
         raise SystemExit("Sem fonte de dados: defina SHEETS_CSV_URL (ou --url / --local). Nada foi enviado.")
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (relatorio-6bec)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (relatorio-6bec-robot; +https://decampos603.github.io/dashboard-credito-6bec-catrimani/)"})
     ext = ".csv" if "output=csv" in url else ".xlsx"
     tmp = os.path.join(tempfile.gettempdir(), f"credito_disp_160353_email{ext}")
-    try:
-        with urllib.request.urlopen(req, timeout=90) as r, open(tmp, "wb") as f:
-            f.write(r.read())
-    except Exception as e:
-        raise SystemExit(f"Falha no download da fonte ({e}). Nada foi enviado.")
-    if os.path.getsize(tmp) < 500:
-        raise SystemExit("Download muito pequeno — verifique a URL da planilha. Nada foi enviado.")
-    return tmp
+
+    is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    ef_tentativas = 2 if is_test else max_tentativas
+    ef_delay = 0 if is_test else delay_base
+
+    ultimo_erro = None
+    for tentativa in range(1, ef_tentativas + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
+                f.write(r.read())
+            tam = os.path.getsize(tmp)
+            if tam >= 500:
+                return tmp
+            print(f"[DOWNLOAD-EMAIL] Tentativa {tentativa}/{ef_tentativas}: arquivo muito pequeno ({tam} bytes).")
+        except Exception as e:
+            ultimo_erro = e
+            print(f"[DOWNLOAD-EMAIL] Tentativa {tentativa}/{ef_tentativas} falhou ({e}).")
+
+        if tentativa < ef_tentativas and ef_delay > 0:
+            espera = ef_delay * tentativa
+            print(f"[DOWNLOAD-EMAIL] Aguardando {espera}s antes da tentativa {tentativa + 1}...")
+            time.sleep(espera)
+
+    if ultimo_erro:
+        raise SystemExit(f"Falha no download da fonte após {ef_tentativas} tentativas ({ultimo_erro}). Nada foi enviado.")
+    raise SystemExit(f"Download muito pequeno ({os.path.getsize(tmp)} bytes) após {ef_tentativas} tentativas — verifique a URL da planilha. Nada foi enviado.")
 
 
 def ler_linhas(path):

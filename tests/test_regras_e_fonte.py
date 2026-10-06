@@ -91,3 +91,47 @@ def test_sem_atualizacao_desde(tmp_path):
     ]), encoding="utf-8")
     assert em.desde_quando_sem_atualizar("2026-09-25", datetime.date(2026, 9, 28), str(hist)) == "2026-09-26"
     assert em.desde_quando_sem_atualizar("2026-09-28", datetime.date(2026, 9, 28), str(hist)) is None
+
+
+def test_baixar_retry_sucesso_apos_falha(monkeypatch, tmp_path):
+    tentativas = 0
+    arquivo_ok = tmp_path / "ok.csv"
+    arquivo_ok.write_text("x" * 600, encoding="utf-8")
+
+    class RespFake:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+        def read(self):
+            return b"a" * 600
+
+    def falha_uma_vez(*a, **k):
+        nonlocal tentativas
+        tentativas += 1
+        if tentativas == 1:
+            raise OSError("500 Internal Server Error temporario")
+        return RespFake()
+
+    monkeypatch.setattr(g.urllib.request, "urlopen", falha_uma_vez)
+    p = g.baixar("https://docs.google.com/spreadsheets/d/abc/export?format=xlsx", max_tentativas=3, delay_base=0)
+    assert os.path.exists(p)
+    assert tentativas == 2
+
+
+def test_html_defasagem_dinamica():
+    g.POSICAO_DADOS = "2026-10-01"
+    g.DATA_EXEC = "2026-10-06"
+    txt = g.txt_defasagem(True)
+    assert "01/10/2026" in txt
+    assert "5 dias" in txt
+
+    fix = os.path.join(RAIZ, "tests", "fixtures", "credito_disp_11set2026.xlsx")
+    res, periodo, alertas, catrimani_data, omds_totais = g.etl(fix)
+    html_out = g.montar_pagina(res, [], "2026-10-06", periodo, alertas, catrimani_data, omds_totais)
+
+    assert 'data-posicao=' in html_out
+    assert 'data-exec=' in html_out
+    assert 'var POSICAO_DADOS=' in html_out
+    assert 'bcmsAtualizarDefasagemDinamica' in html_out
+

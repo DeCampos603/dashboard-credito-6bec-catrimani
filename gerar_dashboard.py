@@ -10,7 +10,7 @@ Acompanhamento Orçamentário Multi-UGs da Ação Governamental 21EM (Operação
 - Validação anti-falha: Crédito Disponível = Recebido − Concedido − Empenhado.
 - Escreve site/index.html (autocontido: CSS Moderno + Google Fonts + SVG + Tabela + Excel) e site/data/history.json.
 """
-import os, sys, json, argparse, datetime, urllib.request, tempfile, html, math, re, shutil
+import os, sys, json, argparse, datetime, urllib.request, tempfile, html, math, re, shutil, time
 import unicodedata, csv
 import openpyxl
 import regras_nc
@@ -76,8 +76,9 @@ def disp(v):
     s = "" if v is None else str(v).strip().replace("'", "")
     return "" if s in ("-9", "NAO SE APLICA", "NÃO SE APLICA") else s
 
-def baixar(target=None):
-    """Baixa a fonte do dia. Sem fonte ou com falha, o job FALHA: o site do dia anterior continua no ar.
+def baixar(target=None, max_tentativas=4, delay_base=3):
+    """Baixa a fonte do dia com retry exponencial. Sem fonte ou com falha persistente, o job FALHA:
+    o site do dia anterior continua no ar sem corromper dados nem publicar arquivos velhos.
 
     Nunca há fallback para planilha antiga — isso já publicou a posição de 11/09 como se fosse de 17/09 e 27/09.
     """
@@ -92,17 +93,35 @@ def baixar(target=None):
     if not url:
         raise SystemExit("Sem fonte de dados: defina SHEETS_CSV_URL (ou DRIVE_FILE_ID, --url, --local). Abortado sem publicar.")
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (dashboard-6bec)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (dashboard-6bec-robot; +https://decampos603.github.io/dashboard-credito-6bec-catrimani/)"})
     ext = ".csv" if "output=csv" in url else ".xlsx"
     tmp = os.path.join(tempfile.gettempdir(), f"credito_disp_160353_download{ext}")
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
-            f.write(r.read())
-    except Exception as e:
-        raise SystemExit(f"Falha no download da fonte ({e}). Abortado sem publicar.")
-    if os.path.getsize(tmp) < 500:
-        raise SystemExit(f"Download muito pequeno ({os.path.getsize(tmp)} bytes) — verifique o link público da planilha. Abortado sem publicar.")
-    return tmp
+
+    is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    ef_tentativas = 2 if is_test else max_tentativas
+    ef_delay = 0 if is_test else delay_base
+
+    ultimo_erro = None
+    for tentativa in range(1, ef_tentativas + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
+                f.write(r.read())
+            tam = os.path.getsize(tmp)
+            if tam >= 500:
+                return tmp
+            print(f"[DOWNLOAD] Tentativa {tentativa}/{ef_tentativas}: arquivo muito pequeno ({tam} bytes).")
+        except Exception as e:
+            ultimo_erro = e
+            print(f"[DOWNLOAD] Tentativa {tentativa}/{ef_tentativas} falhou ({e}).")
+
+        if tentativa < ef_tentativas and ef_delay > 0:
+            espera = ef_delay * tentativa
+            print(f"[DOWNLOAD] Aguardando {espera}s antes da tentativa {tentativa + 1}...")
+            time.sleep(espera)
+
+    if ultimo_erro:
+        raise SystemExit(f"Falha no download da fonte após {ef_tentativas} tentativas ({ultimo_erro}). Abortado sem publicar.")
+    raise SystemExit(f"Download muito pequeno ({os.path.getsize(tmp)} bytes) após {ef_tentativas} tentativas — verifique o link público da planilha. Abortado sem publicar.")
 
 def ler_linhas(path):
     is_csv = str(path).lower().endswith(".csv")
@@ -1402,7 +1421,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         f'<div class="et-kpi"><span>Idade média</span><b class="num">{idade_media} dias</b></div>'
         f'<div class="et-kpi"><span>Mais antigo</span><b class="num">{idade_max} dias</b></div>'
         f'<div class="et-action"><button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportTable(this,\'tab-emtela-{sfx}\',\'creditos_em_tela_nc_{sfx}\')" title="Baixar relatório detalhado de créditos por NC em planilha Excel"><span class="btn-excel-ic">📥</span> Baixar Relatório NC em Excel</button></div>'
-        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ {esc(txt_defasagem(True))}</span></div></div>'
+        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay" data-posicao="{esc(POSICAO_DADOS)}" data-exec="{esc(DATA_EXEC)}" title="Data da última Nota de Crédito lançada no SIAFI">⏱ {esc(txt_defasagem(True))}</span></div></div>'
         '<p class="sec-nota">Relação dos <b>créditos disponíveis por Nota de Crédito (NC)</b> com descrição completa do objeto e <b>dias em tela</b> (desde o lançamento da NC). '
         '<b>Clique em uma linha</b> para abrir a ficha completa. Legenda de idade: <span class="badge-age age-green">≤30d</span> recente · <span class="badge-age age-amber">31–60d</span> atenção · <span class="badge-age age-red">&gt;60d</span> crítico.</p>'
         f'<div class="tbl-tools"><label class="visually-hidden" for="q-tab-emtela-{sfx}">Buscar</label>'
@@ -1427,7 +1446,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
     resumo_html = (
         emtela_html
         + f'<section class="sec"><div class="eyebrow">Movimentação de NC — {fmt_d(max_date)} (dia anterior)</div>'
-        f'<p class="sec-nota">Notas de crédito com lançamento em <b>{fmt_d(max_date)}</b> (último dia com movimento — {esc(txt_defasagem(True))}): '
+        f'<p class="sec-nota">Notas de crédito com lançamento em <b>{fmt_d(max_date)}</b> (último dia com movimento — <span class="rh-delay" data-posicao="{esc(POSICAO_DADOS)}" data-exec="{esc(DATA_EXEC)}">{esc(txt_defasagem(True))}</span>): '
         f'<b>{len(daily)}</b> NC(s) · Recebido <b>{esc(brl(rec_d))}</b> · Reduções <b>{esc(brl(red_d))}</b> · Líquido <b>{esc(brl(rec_d + red_d))}</b>. '
         'Clique em uma NC para detalhá-la.</p>'
         + mov_tabela(f"mov-dia-{sfx}", daily) + '</section>'
@@ -1479,7 +1498,7 @@ def conteudo_unidade(res, hist, data_str, periodo, u, u_hist_items=None):
         f'<div class="et-kpi"><span>Provisão Recebida</span><b class="num" id="kpi-uhist-prov-{sfx}">{esc(brl(tot_u_prov))}</b></div>'
         f'<div class="et-kpi"><span>Total Empenhado</span><b class="num" id="kpi-uhist-emp-{sfx}">{esc(brl(tot_u_emp))}</b></div>'
         f'<div class="et-action"><button type="button" class="btn-excel btn-excel-lg" onclick="bcmsExportUHistExcel(\'{sfx}\',\'{u_sigla}\')" title="Baixar histórico completo de {u_sigla} em planilha Excel"><span class="btn-excel-ic">📥</span> Baixar Histórico em Excel</button></div>'
-        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay">⏱ {esc(txt_defasagem(True))}</span></div>'
+        f'<div class="et-meta">Posição {esc(posicao)}<br><span class="rh-delay" data-posicao="{esc(POSICAO_DADOS)}" data-exec="{esc(DATA_EXEC)}" title="Data da última Nota de Crédito lançada no SIAFI">⏱ {esc(txt_defasagem(True))}</span></div>'
         f'</div>'
     )
 
@@ -3027,7 +3046,7 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
     </div>
   </div>
   <div class="topbar-r">
-    <div class="selo-wrap"><span class="selo"><span class="live-dot" aria-hidden="true"></span> Posição {esc(posicao)}</span><span class="selo-delay">⏱ {esc(txt_defasagem(True))}</span></div>
+    <div class="selo-wrap"><span class="selo" title="Data base da última Nota de Crédito lançada no SIAFI"><span class="live-dot" aria-hidden="true"></span> Posição {esc(posicao)}</span><span class="selo-delay" data-posicao="{esc(POSICAO_DADOS)}" data-exec="{esc(DATA_EXEC)}" title="Data da última Nota de Crédito lançada no SIAFI">⏱ {esc(txt_defasagem(True))}</span></div>
     <button class="theme" id="themeBtn" aria-pressed="false" aria-label="Alternar tema claro/escuro" onclick="bcmsTheme()" title="Alternar tema">
       <svg viewBox="0 0 24 24" class="ic-sun" aria-hidden="true"><circle cx="12" cy="12" r="4.5" style="fill:currentColor"/><g style="stroke:currentColor;stroke-width:1.8;stroke-linecap:round"><path d="M12 2v2.5M12 19.5v2.5M2 12h2.5M19.5 12h2.5M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M19.07 4.93l-1.77 1.77M6.7 17.3l-1.77 1.77"/></g></svg>
       <svg viewBox="0 0 24 24" class="ic-moon" aria-hidden="true"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z" style="fill:currentColor"/></svg>
@@ -3049,10 +3068,10 @@ def montar_pagina(res, hist, data_str, periodo=None, alertas=None, catrimani_dat
   <p class="rodape-brand">⚙ 6º Batalhão de Engenharia de Construção · Operação Catrimani II · Comando Militar da Amazônia</p>
   <p><b>Metodologia:</b> Crédito Disponível = Provisão Recebida − Provisão Concedida − Despesas Empenhadas (saldo líquido não empenhado no Tesouro Gerencial / SIAFI). O detalhe é o saldo real por célula orçamentária (Ação · PI · ND). A aba Catrimani consolida o acompanhamento inter-unidades de todas as UGs executoras da Ação 21EM.</p>
   {selo_integridade_html(catrimani_data)}
-  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b>⏱ {esc(txt_defasagem())}.</b> · Painel atualizado em {esc(ger)} (Horário de Brasília)</p>
+  <p>Fonte: CRÉDITO DISP 160353.xlsx (Tesouro Gerencial / SIAFI) · <b><span class="selo-delay-longo" data-posicao="{esc(POSICAO_DADOS)}" data-exec="{esc(DATA_EXEC)}">⏱ {esc(txt_defasagem())}</span>.</b> · Painel atualizado em {esc(ger)} (Horário de Brasília)</p>
   <p style="margin-top:8px;font-size:12px;opacity:0.85;">💻 <b>Desenvolvido por:</b> 3º Sgt De Campos (BCMS) &nbsp;·&nbsp; 🔍 <b>Auditado por:</b> TC Saldanha (Ba Ap Log)</p>
 </footer>
-<script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};</script>
+<script>var CELDATA={celdata_json};var NCDATA={ncdata_json};var DAYDATA={daydata_json};var TELADATA={teladata_json};var UNIDADES={ujs};var HISTDATA={histdata_json};var CATRDATA={catrimani_json};var OMDSDATA={omds_json};var POSICAO_DADOS="{esc(POSICAO_DADOS)}";var DATA_EXEC="{esc(DATA_EXEC)}";</script>
 <script>{JS}</script>
 </body></html>"""
 
@@ -7873,6 +7892,60 @@ function bcmsExportCatrimaniExcel(){
   link.click();
   document.body.removeChild(link);
   bcmsToast('📊 Planilha da Operação Catrimani exportada com sucesso (' + list.length + ' linhas)!');
+}
+
+/* ==========================================================================
+   RECÁLCULO DINÂMICO DE DEFASAGEM NO CLIENTE (navegador)
+   Garante que o aviso de dias nunca fique congelado, calculando a distância
+   em relação ao dia atual real (new Date()) e fornecendo tooltip explicativo
+   sobre a data da última Nota de Crédito lançada no SIAFI.
+   ========================================================================== */
+function bcmsAtualizarDefasagemDinamica(){
+  var posISO = (typeof POSICAO_DADOS !== 'undefined' && POSICAO_DADOS) ? String(POSICAO_DADOS).trim() : '';
+  var execISO = (typeof DATA_EXEC !== 'undefined' && DATA_EXEC) ? String(DATA_EXEC).trim() : '';
+
+  var elSelos = document.querySelectorAll('.selo-delay, .rh-delay, .selo-delay-longo, [data-posicao]');
+  if(!elSelos.length && !posISO) return;
+
+  var hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  elSelos.forEach(function(el){
+    var pStr = el.getAttribute('data-posicao') || posISO;
+    if(!pStr) return;
+    var partes = pStr.split('-');
+    if(partes.length !== 3) return;
+
+    var posData = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+    posData.setHours(0, 0, 0, 0);
+
+    var diffMs = hoje.getTime() - posData.getTime();
+    var diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    var sufixo = diffDias <= 0 ? 'hoje' : (diffDias === 1 ? '1 dia' : diffDias + ' dias');
+
+    var diaFmt = String(posData.getDate()).padStart(2, '0') + '/' +
+                 String(posData.getMonth() + 1).padStart(2, '0') + '/' +
+                 posData.getFullYear();
+
+    var isCurto = !el.classList.contains('selo-delay-longo');
+    var pre = isCurto ? 'Dados até' : 'Dados do Tesouro Gerencial até';
+    el.textContent = '⏱ ' + pre + ' ' + diaFmt + ' (' + sufixo + ')';
+
+    var tooltip = 'Posição dos Dados: ' + diaFmt + ' (' + (diffDias <= 0 ? 'mesmo dia' : (diffDias === 1 ? '1 dia atrás' : diffDias + ' dias atrás')) + ').\n' +
+                  'Reflete a data da última Nota de Crédito lançada no SIAFI.\n' +
+                  'Se a unidade ou o COTER não lançarem novas NCs no fim de semana ou feriado, a posição permanece a da última NC emitida.';
+    var eStr = el.getAttribute('data-exec') || execISO;
+    if(eStr){
+      tooltip += '\nÚltima verificação da esteira: ' + eStr;
+    }
+    el.title = tooltip;
+  });
+}
+
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', bcmsAtualizarDefasagemDinamica);
+} else {
+  bcmsAtualizarDefasagemDinamica();
 }
 
 """

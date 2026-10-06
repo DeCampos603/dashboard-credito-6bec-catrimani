@@ -6,3 +6,6 @@ __pycache__/
 Thumbs.db
 relatorio_catrimani_dashboard.html
 relatorio_ultimas_30_ncs_catrimani.pdf
+
+# Saídas do módulo credito_disponivel (contêm dados orçamentários; não publicar)
+saida/
