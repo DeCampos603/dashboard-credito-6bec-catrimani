@@ -943,14 +943,20 @@ def svg_diverg(itens, titulo, max_itens=8):
         return f'<div class="card chart"><div class="eyebrow">{esc(titulo)}</div><p class="vazio">Sem valores no período</p></div>'
     vmax = max(abs(v) for _, v in itens) or 1
     labW, rh, pad = 150, 32, 10
-    zx = labW + 246
-    half = 230
-    W = zx + half + 70
+    tem_neg = any(v < 0 for _, v in itens)
+    if tem_neg:
+        zx = labW + 240
+        half = 220
+        W = zx + half + 115
+    else:
+        zx = labW + 16
+        half = 400
+        W = zx + half + 115
     H = pad * 2 + rh * len(itens) + 16
     el = [f'<line x1="{zx}" y1="{pad}" x2="{zx}" y2="{pad+rh*len(itens):.0f}" class="s-zero"/>']
     for i, (k, v) in enumerate(itens):
         y = pad + i * rh
-        w = abs(v) / vmax * half
+        w = max(3, abs(v) / vmax * half)
         lbl = k if len(k) <= 24 else k[:23] + "…"
         el.append(f'<text x="{labW-8}" y="{y+rh/2+4:.0f}" text-anchor="end" class="s-cat">{esc(lbl)}</text>')
         if v >= 0:
@@ -3186,6 +3192,12 @@ CSS = r"""
   /* Transições Spring */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-smooth: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* Padrões Data Visualization Engineer (IBM Carbon + Tremor + Tufte) */
+  --chart-grid:      rgba(15, 23, 42, 0.06);
+  --chart-zero:      var(--neutral-400);
+  --chart-axis:      var(--neutral-500);
+  --chart-bar-hover: brightness(1.08);
 }
 
 /* --- Dark Mode Elegante (OLED + Baixa Fadiga Ocular) --- */
@@ -3247,6 +3259,9 @@ CSS = r"""
     --shadow:    0 2px 6px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
     --shadow-h:  0 10px 24px rgba(0, 0, 0, 0.6);
+    --chart-grid: rgba(255, 255, 255, 0.06);
+    --chart-zero: var(--neutral-500);
+    --chart-axis: var(--neutral-400);
   }
 }
 
@@ -3308,6 +3323,9 @@ CSS = r"""
   --shadow:    0 2px 6px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-h:  0 10px 24px rgba(0, 0, 0, 0.6);
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-zero: var(--neutral-500);
+  --chart-axis: var(--neutral-400);
 }
 
 :root[data-theme="light"] {
@@ -3323,6 +3341,9 @@ CSS = r"""
   --border:        var(--neutral-200);
   --border-strong: var(--neutral-300);
   --hero-soft:      #F0FDF4;
+  --chart-grid: rgba(15, 23, 42, 0.06);
+  --chart-zero: var(--neutral-400);
+  --chart-axis: var(--neutral-500);
 }
 
 html {
@@ -3791,20 +3812,28 @@ h1 {
   text-transform: uppercase;
 }
 .kpi-v {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
   font-size: 1.5rem;
   font-weight: 700;
   margin: 6px 0;
   color: var(--ink);
+  letter-spacing: -0.015em;
 }
 .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--ink-muted);
   background: var(--bg-subtle);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 2px 8px;
   width: fit-content;
+  letter-spacing: 0.02em;
 }
 
 /* Grids */
@@ -4434,29 +4463,29 @@ select option:checked, .flt option:checked, .hist-select option:checked {
 }
 .tbl-action-btn:hover { background: var(--primary); color: #FFFFFF; }
 
-/* SVG Classes */
-.svg { width: 100%; height: auto; display: block; }
-.s-lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: var(--ink-muted); }
-.s-seg { font-size: 11px; fill: var(--warning-ink); font-weight: 600; font-family: var(--mono); }
+/* SVG Classes — Padrão Tufte & Data-to-Ink Ratio */
+.svg { width: 100%; height: auto; display: block; shape-rendering: geometricPrecision; text-rendering: optimizeLegibility; }
+.s-lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: var(--ink-muted); text-transform: uppercase; }
+.s-seg { font-size: 11px; fill: var(--warning-ink); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .s-seg-ok { fill: var(--success-strong); }
 .s-brk { stroke: var(--border-strong); stroke-width: 1; }
 .s-cat { font-size: 12px; fill: var(--ink-muted); }
 .s-cat-ok { fill: var(--success-strong); font-weight: 600; }
-.s-val { font-size: 13px; font-weight: 700; font-family: var(--mono); }
+.s-val { font-size: 13px; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .s-on { fill: #FFFFFF; }
 .s-ok { fill: var(--success-strong); }
 .s-warn { fill: var(--warning-ink); }
 .s-on2 { fill: var(--ink); }
-.s-num { font-size: 11px; font-weight: 600; font-family: var(--mono); }
+.s-num { font-size: 11px; font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .s-neg { fill: var(--danger); }
 .s-conn { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 3; }
-.s-zero { stroke: var(--border-strong); stroke-width: 1.5; }
-.s-grid { stroke: var(--border); stroke-width: 1; }
-.s-ax { font-size: 11px; fill: var(--ink-muted); font-family: var(--mono); }
-.s-line { fill: none; stroke: var(--success); stroke-width: 2.5; }
+.s-zero { stroke: var(--chart-zero, var(--border-strong)); stroke-width: 1.5; }
+.s-grid { stroke: var(--chart-grid, var(--border)); stroke-width: 1; }
+.s-ax { font-size: 11px; fill: var(--ink-muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.s-line { fill: none; stroke: var(--success); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .s-area { fill: var(--success); opacity: .12; }
 .s-dot { fill: var(--success); }
-.s-conv { font-size: 10.5px; fill: var(--ink-muted); }
+.s-conv { font-size: 10.5px; fill: var(--ink-muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* Modal Drill-Down (Física Spring + Backdrop Blur) */
 .modal {
