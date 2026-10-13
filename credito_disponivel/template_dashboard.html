@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Crédito Disponível · Catrimani</title>
+<style>
+:root{
+  --bg:#f5f6f4;--surface:#ffffff;--surface-2:#eef0ec;--ink:#1b1f1a;--ink-2:#4a5247;--line:#d9ddd5;
+  --accent:#2f5d3a;--accent-soft:#e3ece4;
+  --crit:#b3261e;--crit-soft:#fbe9e7;--warn:#8a5a00;--warn-soft:#fdf1d8;--ok:#1f6b3a;--ok-soft:#e2f2e7;--info:#35556e;--info-soft:#e6eef4;
+  --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121512;--surface:#1a1e1a;--surface-2:#232823;--ink:#e7ebe5;--ink-2:#a9b2a6;--line:#323a31;
+  --accent:#8fc59b;--accent-soft:#1f3324;
+  --crit:#ff8a80;--crit-soft:#3a1d1b;--warn:#f0c060;--warn-soft:#352a12;--ok:#7fd49a;--ok-soft:#16301f;--info:#9cc2e0;--info-soft:#1a2a36;
+  --shadow:none;}}
+:root[data-theme="dark"]{
+  --bg:#121512;--surface:#1a1e1a;--surface-2:#232823;--ink:#e7ebe5;--ink-2:#a9b2a6;--line:#323a31;
+  --accent:#8fc59b;--accent-soft:#1f3324;
+  --crit:#ff8a80;--crit-soft:#3a1d1b;--warn:#f0c060;--warn-soft:#352a12;--ok:#7fd49a;--ok-soft:#16301f;--info:#9cc2e0;--info-soft:#1a2a36;
+  --shadow:none;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1400px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2)}
+.sub{color:var(--ink-2);font-size:13px}
+button,select,input{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:var(--shadow);margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi .lbl{font-size:12px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em}
+.kpi .val{font-size:22px;font-weight:650;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .det{font-size:12px;color:var(--ink-2);margin-top:4px}
+.kpi.hero{border:2px solid var(--accent);background:var(--accent-soft)}
+.kpi.hero .val{font-size:28px;color:var(--accent)}
+.bar{height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;margin-top:8px}
+.bar>span{display:block;height:100%;background:var(--accent)}
+.fontes{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+.filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.filtros label{font-size:12px;color:var(--ink-2);display:flex;flex-direction:column;gap:2px}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
+th{position:sticky;top:0;background:var(--surface-2);font-size:12px;cursor:pointer;user-select:none}
+th.num,td.num{text-align:right}
+th[aria-sort="ascending"]::after{content:" ▲"}th[aria-sort="descending"]::after{content:" ▼"}
+tbody tr.row{cursor:pointer}
+tbody tr.row:hover{background:var(--surface-2)}
+tfoot td{font-weight:650;background:var(--surface-2)}
+.st{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.st-Crítico{background:var(--crit-soft);color:var(--crit)}.st-Alerta{background:var(--warn-soft);color:var(--warn)}
+.st-Saudável{background:var(--ok-soft);color:var(--ok)}.st-Informativo{background:var(--info-soft);color:var(--info)}
+.neg{color:var(--crit)}.muted{color:var(--ink-2)}
+.detail td{background:var(--surface-2);white-space:normal}
+.detail table{background:var(--surface);font-size:13px}
+.formula{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px;margin:8px 0;white-space:pre-wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.alerta{border-left:4px solid var(--line);padding:8px 12px;margin-bottom:8px;background:var(--surface-2);border-radius:0 6px 6px 0}
+.alerta.Crítico{border-color:var(--crit)}.alerta.Alerta{border-color:var(--warn)}.alerta.Informativo{border-color:var(--info)}
+.alerta b{display:block}
+.alerta small{color:var(--ink-2)}
+.hbar{display:grid;grid-template-columns:minmax(120px,220px) 1fr auto;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.hbar .track{height:14px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+.hbar .track span{display:block;height:100%;background:var(--accent)}
+.empty{padding:24px;text-align:center;color:var(--ink-2)}
+.pend li{margin-bottom:6px}
+.tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.tabs button[aria-pressed="true"]{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.max-h{max-height:520px;overflow:auto}
+@media print{.filtros,.tabs,#tema,#csv{display:none}.max-h{max-height:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1 id="titulo">Crédito Disponível para Empenho</h1>
+    <div class="sub" id="subtitulo"></div>
+    <div class="fontes" id="fontes"></div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="csv" type="button">Exportar CSV</button>
+    <button id="tema" type="button" aria-label="Alternar tema claro/escuro">Tema</button>
+  </div>
+</header>
+
+<section class="kpis" id="kpis" aria-label="Indicadores"></section>
+
+<section class="panel">
+  <h2>Tabela analítica</h2>
+  <div class="tabs" role="group" aria-label="Agrupar por">
+    <button type="button" data-g="celula" aria-pressed="true">Célula (UG·PI·ND)</button>
+    <button type="button" data-g="ug" aria-pressed="false">UG</button>
+    <button type="button" data-g="pi" aria-pressed="false">Ação / PI</button>
+    <button type="button" data-g="nd" aria-pressed="false">Natureza (ND)</button>
+    <button type="button" data-g="elemento" aria-pressed="false">Grupo·Elemento</button>
+    <button type="button" data-g="nc" aria-pressed="false">Nota de Crédito</button>
+  </div>
+  <div class="filtros">
+    <label>UG<select id="fUg"><option value="">Todas</option></select></label>
+    <label>Ação / PI (PTRES)<select id="fPi"><option value="">Todos</option></select></label>
+    <label>ND<select id="fNd"><option value="">Todas</option></select></label>
+    <label>Fonte<select id="fFonte"><option value="">Todas</option></select></label>
+    <label>Status<select id="fSt"><option value="">Todos</option><option>Crítico</option><option>Alerta</option><option>Saudável</option></select></label>
+    <label>Somente com saldo<select id="fSaldo"><option value="">Não</option><option value="1">Sim</option></select></label>
+    <label>Busca<input id="fQ" type="search" placeholder="NC, descrição, PI…"></label>
+  </div>
+  <div class="tbl-wrap max-h"><table id="tabela"></table></div>
+  <p class="sub" id="notaTabela"></p>
+</section>
+
+<div class="grid2">
+  <section class="panel">
+    <h2>Saldo disponível por UG</h2>
+    <div id="graficoUg"></div>
+  </section>
+  <section class="panel">
+    <h2>Saldo disponível por natureza de despesa</h2>
+    <div id="graficoNd"></div>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Alertas e auditoria</h2>
+  <div class="tabs" role="group" aria-label="Filtrar alertas">
+    <button type="button" data-sev="" aria-pressed="true">Todos</button>
+    <button type="button" data-sev="Crítico" aria-pressed="false">Críticos</button>
+    <button type="button" data-sev="Alerta" aria-pressed="false">Alertas</button>
+    <button type="button" data-sev="Informativo" aria-pressed="false">Informativos</button>
+  </div>
+  <div id="alertas" class="max-h"></div>
+</section>
+
+<section class="panel">
+  <h2>Restos a pagar da operação (exercícios anteriores)</h2>
+  <div class="tbl-wrap max-h"><table id="tabelaRp"></table></div>
+  <p class="sub">Saldo "a liquidar" recalculado pelos fluxos: inscrito (+ reinscrito) − cancelado − liquidado. A coluna "Reportado" mostra o item do export, que pode vir com sinal trocado.</p>
+</section>
+
+<div class="grid2">
+  <section class="panel">
+    <h2>Metodologia</h2>
+    <div class="formula">Disponível = Crédito Bruto (provisão + destaque recebidos)
+          − Anulações / Devoluções
+          − Concedido a outras UGs
+          ± Detalhamento (troca interna de ND)
+          − Empenhado
+          − Pré-empenhado − Bloqueado   (quando o export trouxer as colunas)</div>
+    <p class="sub">O saldo exibido é o item <b>CRÉDITO DISPONÍVEL</b> do SIAFI (fonte oficial). A fórmula acima é recalculada célula a célula como prova; qualquer diferença vira alerta de conciliação.</p>
+    <p class="sub"><b>Comprometimento</b> = Empenhado ÷ (Empenhado + Disponível).</p>
+    <p class="sub"><b>NC com saldo</b>: o SIAFI não vincula empenho a NC. O saldo da célula é atribuído às NCs mais recentes (as mais antigas são consumidas primeiro, convenção FIFO), o que indica qual prazo de empenho está em jogo. É uma estimativa.</p>
+    <p class="sub"><b>Status</b>: Crítico = saldo negativo, NC com prazo vencido ou a ≤ 7 dias. Alerta = prazo em ≤ 30 dias, saldo residual (&lt; R$ 1.000), ND genérica, divergência de conciliação. Saudável = demais.</p>
+    <p class="sub" id="criterio"></p>
+  </section>
+  <section class="panel">
+    <h2>Pendências de dados</h2>
+    <ul class="pend sub" id="pendencias"></ul>
+  </section>
+</div>
+<p class="sub" id="rodape"></p>
+</div>
+
+<script id="dados" type="application/json">/*__DADOS__*/</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("dados").textContent);
+const fmt = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
+const brl = c => c === null || c === undefined ? "n/d" : fmt.format(c/100);
+const dataBR = s => s ? s.split("-").reverse().join("/") : "—";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const hoje = new Date(D.meta.data_referencia + "T00:00:00");
+const dias = s => Math.round((new Date(s + "T00:00:00") - hoje) / 86400000);
+const $ = id => document.getElementById(id);
+
+/* ---------- Tema ---------- */
+(() => {
+  let t = null; try { t = localStorage.getItem("cd-tema"); } catch (e) {}
+  if (t) document.documentElement.dataset.theme = t;
+  $("tema").onclick = () => {
+    const escuro = matchMedia("(prefers-color-scheme: dark)").matches;
+    const atual = document.documentElement.dataset.theme || (escuro ? "dark" : "light");
+    const novo = atual === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = novo;
+    try { localStorage.setItem("cd-tema", novo); } catch (e) {}
+  };
+})();
+
+/* ---------- Cabeçalho ---------- */
+$("titulo").textContent = "Crédito Disponível para Empenho — " + D.meta.operacao;
+$("subtitulo").textContent = `Posição de análise ${dataBR(D.meta.data_referencia)} · limite de empenho considerado ${dataBR(D.meta.limite_exercicio)} · gerado em ${D.meta.gerado_em}`;
+$("fontes").innerHTML = D.meta.fontes.map(f =>
+  `<span class="chip" title="${esc(f.titulo)}">${esc(f.arquivo)} · ${esc(f.mes)} · última NC ${dataBR(f.ultima_nc)} · UGs da operação: ${f.ugs.length ? esc(f.ugs.join(", ")) : "nenhuma"}</span>`).join("");
+$("criterio").innerHTML = `<b>Filtro da operação</b>: ${esc(D.meta.criterio)}. ${D.meta.linhas_filtradas} linhas do export atendem ao critério.`;
+$("pendencias").innerHTML = D.meta.pendencias.map(p => `<li>${esc(p)}</li>`).join("") || "<li>Nenhuma.</li>";
+$("rodape").textContent = "Fonte: Tesouro Gerencial (espelho do SIAFI). Em divergência, prevalece o SIAFI.";
+
+/* ---------- Estado ---------- */
+const S = { grupo: "celula", sortKey: "saldo", sortDir: -1, aberto: new Set(), sev: "" };
+const C = D.celulas;
+const piLabel = c => `${c.acao}${c.ptres ? " / " + c.ptres : ""} · ${c.pi}`;
+
+function preencher(sel, pares) {
+  const el = $(sel);
+  [...new Map(pares).entries()].sort((a,b) => a[0].localeCompare(b[0]))
+    .forEach(([v, t]) => el.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(t)}</option>`));
+}
+preencher("fUg", C.map(c => [c.ug, `${c.ug} · ${c.ug_nome}`]));
+preencher("fPi", C.map(c => [c.pi, piLabel(c) + (c.pi_nome ? " — " + c.pi_nome : "")]));
+preencher("fNd", C.map(c => [c.nd, `${c.nd} · ${c.nd_nome}`]));
+preencher("fFonte", C.filter(c => c.fonte_rec).map(c => [c.fonte_rec, c.fonte_rec]));
+if (!C.some(c => c.fonte_rec)) { $("fFonte").disabled = true; $("fFonte").title = "Fonte de recursos não consta do export"; }
+
+function filtradas() {
+  const ug = $("fUg").value, pi = $("fPi").value, nd = $("fNd").value, fo = $("fFonte").value;
+  const st = $("fSt").value, so = $("fSaldo").value, q = $("fQ").value.trim().toUpperCase();
+  return C.filter(c => (!ug || c.ug === ug) && (!pi || c.pi === pi) && (!nd || c.nd === nd) &&
+    (!fo || c.fonte_rec === fo) && (!st || c.status === st) && (!so || c.saldo > 0) &&
+    (!q || [c.ug, c.ug_nome, c.pi, c.pi_nome, c.nd, c.nd_nome, ...c.ncs.map(n => n.nc + " " + n.desc)].join(" ").toUpperCase().includes(q)));
+}
+
+/* ---------- KPIs ---------- */
+function soma(arr, k) { return arr.reduce((s, x) => s + (x[k] || 0), 0); }
+function kpis(cs) {
+  const bruto = soma(cs,"bruto"), anul = soma(cs,"anul"), conc = soma(cs,"conc"), emp = soma(cs,"emp");
+  const saldo = soma(cs,"saldo"), livre = cs.reduce((s,c) => s + Math.max(c.saldo,0), 0);
+  const base = emp + livre, taxa = base > 0 ? emp / base * 100 : null;
+  const venc = cs.flatMap(c => c.ncs).filter(n => n.saldo > 0 && n.prazo && dias(n.prazo) < 0).reduce((s,n) => s + n.saldo, 0);
+  const n = {C: cs.filter(c => c.status === "Crítico").length, A: cs.filter(c => c.status === "Alerta").length};
+  $("kpis").innerHTML = `
+    <div class="kpi"><div class="lbl">Crédito descentralizado (bruto)</div><div class="val">${brl(bruto)}</div>
+      <div class="det">Líquido de anulações: ${brl(bruto - anul - conc)}</div></div>
+    <div class="kpi"><div class="lbl">Empenhado × Anulado</div><div class="val">${brl(emp)}</div>
+      <div class="det">Anulações/devoluções de NC: ${brl(anul)}${conc ? " · concedido: " + brl(conc) : ""}</div></div>
+    <div class="kpi hero"><div class="lbl">Saldo real disponível para empenho</div><div class="val ${saldo < 0 ? "neg" : ""}">${brl(saldo)}</div>
+      <div class="det">${venc ? `<span class="neg">${brl(venc)} em NCs com prazo vencido</span>` : "Nenhum saldo em NC com prazo vencido"}</div></div>
+    <div class="kpi"><div class="lbl">Comprometimento (empenhado ÷ crédito)</div><div class="val">${taxa === null ? "n/d" : taxa.toFixed(1).replace(".", ",") + "%"}</div>
+      <div class="bar"><span style="width:${Math.min(taxa || 0, 100)}%"></span></div></div>
+    <div class="kpi"><div class="lbl">Células</div><div class="val">${cs.length}</div>
+      <div class="det"><span class="st st-Crítico">${n.C} crít.</span> <span class="st st-Alerta">${n.A} alerta</span></div></div>`;
+}
+
+/* ---------- Agrupamentos ---------- */
+const PIOR = {"Crítico": 3, "Alerta": 2, "Saudável": 1};
+function agrupar(cs, chave, rotulo) {
+  const m = new Map();
+  for (const c of cs) {
+    const k = chave(c);
+    let g = m.get(k);
+    if (!g) m.set(k, g = {k, rot: rotulo(c), n: 0, bruto: 0, red: 0, det: 0, emp: 0, saldo: 0, status: "Saudável", bloq: c.bloq === null ? null : 0});
+    g.n++; g.bruto += c.bruto; g.red += c.red; g.det += c.det; g.emp += c.emp; g.saldo += c.saldo;
+    if (g.bloq !== null) g.bloq += c.bloq || 0;
+    if (PIOR[c.status] > PIOR[g.status]) g.status = c.status;
+  }
+  return [...m.values()];
+}
+const GRUPOS = {
+  ug: [c => c.ug, c => `${c.ug} · ${c.ug_nome}`, "UG"],
+  pi: [c => c.acao + "|" + c.ptres + "|" + c.pi, c => `${piLabel(c)}${c.pi_nome ? " — " + c.pi_nome : ""}`, "Ação / PTRES · PI"],
+  nd: [c => c.nd, c => `${c.nd} · ${c.nd_nome}`, "Natureza de Despesa"],
+  elemento: [c => c.nd.slice(0,1) + "." + c.nd.slice(4,6), c => `Grupo ${c.nd.slice(0,1)} · Elemento ${c.nd.slice(4,6)}`, "Grupo · Elemento"],
+};
+
+function ncsComSaldo(c) {
+  const ns = c.ncs.filter(n => n.saldo > 0);
+  if (!ns.length) return c.ncs.length ? `<span class="muted">${c.ncs.length} NC(s), sem saldo</span>` : `<span class="muted">sem NC no export</span>`;
+  return esc(ns[0].nc.slice(-12)) + (ns.length > 1 ? ` <span class="muted">(+${ns.length - 1})</span>` : "");
+}
+
+function ordenar(rows) {
+  const k = S.sortKey, d = S.sortDir;
+  return rows.sort((a, b) => {
+    const x = a[k], y = b[k];
+    if (typeof x === "number" || typeof y === "number") return ((x ?? -Infinity) - (y ?? -Infinity)) * d;
+    return String(x ?? "").localeCompare(String(y ?? "")) * d;
+  });
+}
+
+function th(key, label, num) {
+  const sort = S.sortKey === key ? (S.sortDir > 0 ? "ascending" : "descending") : "none";
+  return `<th scope="col" class="${num ? "num" : ""}" data-k="${key}" aria-sort="${sort}" tabindex="0">${label}</th>`;
+}
+
+function renderTabela() {
+  const cs = filtradas();
+  kpis(cs);
+  graficos(cs);
+  const t = $("tabela");
+  if (!cs.length) {
+    t.innerHTML = `<tbody><tr><td class="empty">Nenhuma célula de crédito do exercício atende aos filtros. ${C.length ? "" : "A operação não possui crédito do exercício nas fontes carregadas — veja Restos a Pagar e Alertas."}</td></tr></tbody>`;
+    $("notaTabela").textContent = "";
+    return;
+  }
+  const tot = {bruto: soma(cs,"bruto"), red: soma(cs,"red"), det: soma(cs,"det"), emp: soma(cs,"emp"), saldo: soma(cs,"saldo")};
+  const bloqND = cs.every(c => c.bloq === null);
+  let head, body, foot;
+  if (S.grupo === "celula") {
+    head = th("ug","UG") + th("pi","Ação/PTRES · PI") + th("fonte_rec","Fonte") + th("nd","ND") + `<th scope="col">Doc. crédito (NC com saldo)</th>` +
+      th("bruto","Crédito bruto",1) + th("red","Anulações/Reduções",1) + th("det","Detalh. ±",1) + th("emp","Empenhado",1) +
+      th("bloq","Bloqueado",1) + th("saldo","Saldo disponível",1) + th("status","Status");
+    body = ordenar([...cs]).map(c => {
+      const aberto = S.aberto.has(c.id);
+      return `<tr class="row" tabindex="0" data-id="${c.id}" aria-expanded="${aberto}">
+        <td title="${esc(c.ug_nome)}">${esc(c.ug)} <span class="muted">${esc(c.ug_nome)}</span></td>
+        <td title="${esc(c.pi_nome)}">${esc(piLabel(c))}</td>
+        <td>${c.fonte_rec ? esc(c.fonte_rec) : '<span class="muted">n/d</span>'}</td>
+        <td title="${esc(c.nd_nome)}">${esc(c.nd)}</td>
+        <td>${ncsComSaldo(c)}</td>
+        <td class="num">${brl(c.bruto)}</td><td class="num">${brl(c.red)}</td><td class="num">${c.det ? brl(c.det) : "—"}</td>
+        <td class="num">${brl(c.emp)}</td><td class="num muted">${brl(c.bloq)}</td>
+        <td class="num ${c.saldo < 0 ? "neg" : ""}"><b>${brl(c.saldo)}</b></td>
+        <td><span class="st st-${c.status}" title="${esc(c.motivos.join("; "))}">${c.status}</span></td></tr>` +
+        (aberto ? detalhe(c) : "");
+    }).join("");
+    foot = `<td colspan="5">Total (${cs.length} células)</td><td class="num">${brl(tot.bruto)}</td><td class="num">${brl(tot.red)}</td><td class="num">${brl(tot.det)}</td><td class="num">${brl(tot.emp)}</td><td class="num">${bloqND ? "n/d" : brl(soma(cs,"bloq"))}</td><td class="num">${brl(tot.saldo)}</td><td></td>`;
+    $("notaTabela").textContent = "Clique em uma linha para o drill-down por Nota de Crédito." + (bloqND ? " Bloqueado = n/d: coluna ausente no export (o saldo SIAFI já é líquido de bloqueios)." : "");
+  } else if (S.grupo === "nc") {
+    const ns = cs.flatMap(c => c.ncs.map(n => ({...n, ug: c.ug, pi: piLabel(c), nd: c.nd, status_cel: c.status,
+      dias: n.prazo ? dias(n.prazo) : null, reducao: n.valor < 0 ? -n.valor : 0, entrada: Math.max(n.valor, 0)})));
+    head = th("nc","NC") + th("data","Emissão") + th("emit","Emitente") + th("ug","UG") + th("pi","Ação · PI") + th("nd","ND") + th("op","Operação") +
+      th("entrada","Valor",1) + th("reducao","Anulação",1) + th("saldo","Saldo atribuído",1) + th("prazo","Prazo empenho") + `<th scope="col">Objeto</th>`;
+    body = ordenar(ns).map(n => {
+      const pz = n.prazo ? `${dataBR(n.prazo)} <span class="${n.dias < 0 ? "neg" : "muted"}">(${n.dias < 0 ? "vencido há " + (-n.dias) : n.dias} d)</span>` : '<span class="muted">—</span>';
+      return `<tr><td>${esc(n.nc)}</td><td>${dataBR(n.data)}</td><td title="${esc(n.emit_nome)}">${esc(n.emit)}</td><td>${esc(n.ug)}</td><td>${esc(n.pi)}</td><td>${esc(n.nd)}</td>
+        <td>${esc(n.op)}</td><td class="num">${brl(n.entrada)}</td><td class="num">${n.reducao ? brl(n.reducao) : "—"}</td>
+        <td class="num"><b>${n.saldo ? brl(n.saldo) : "—"}</b></td><td>${pz}${n.trava ? ' <span class="chip" title="Finalidade/ND travada pelo órgão repassador">trava</span>' : ""}</td>
+        <td style="white-space:normal;min-width:280px">${esc(n.desc)}</td></tr>`;
+    }).join("");
+    foot = `<td colspan="7">Total (${ns.length} NCs)</td><td class="num">${brl(soma(ns,"entrada"))}</td><td class="num">${brl(soma(ns,"reducao"))}</td><td class="num">${brl(soma(ns,"saldo"))}</td><td colspan="2"></td>`;
+    $("notaTabela").textContent = "Saldo atribuído por FIFO (NCs mais antigas consumidas primeiro). A diferença para o saldo total, se houver, é crédito sem NC de origem no export.";
+  } else {
+    const [chave, rotulo, nome] = GRUPOS[S.grupo];
+    const gs = agrupar(cs, chave, rotulo);
+    head = th("rot", nome) + th("n","Células",1) + th("bruto","Crédito bruto",1) + th("red","Anulações/Reduções",1) + th("det","Detalh. ±",1) +
+      th("emp","Empenhado",1) + th("bloq","Bloqueado",1) + th("saldo","Saldo disponível",1) + th("status","Pior status");
+    body = ordenar(gs).map(g => `<tr><td>${esc(g.rot)}</td><td class="num">${g.n}</td><td class="num">${brl(g.bruto)}</td><td class="num">${brl(g.red)}</td>
+      <td class="num">${g.det ? brl(g.det) : "—"}</td><td class="num">${brl(g.emp)}</td><td class="num muted">${brl(g.bloq)}</td>
+      <td class="num ${g.saldo < 0 ? "neg" : ""}"><b>${brl(g.saldo)}</b></td><td><span class="st st-${g.status}">${g.status}</span></td></tr>`).join("");
+    foot = `<td>Total</td><td class="num">${cs.length}</td><td class="num">${brl(tot.bruto)}</td><td class="num">${brl(tot.red)}</td><td class="num">${brl(tot.det)}</td><td class="num">${brl(tot.emp)}</td><td class="num">${bloqND ? "n/d" : brl(soma(cs,"bloq"))}</td><td class="num">${brl(tot.saldo)}</td><td></td>`;
+    $("notaTabela").textContent = "";
+  }
+  t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${foot}</tr></tfoot>`;
+}
+
+function detalhe(c) {
+  const linhas = c.ncs.map(n => {
+    const d = n.prazo ? dias(n.prazo) : null;
+    return `<tr><td>${esc(n.nc)}</td><td>${dataBR(n.data)}</td><td title="${esc(n.emit_nome)}">${esc(n.emit)}</td><td>${esc(n.op)}</td>
+      <td class="num">${brl(n.valor)}</td><td class="num"><b>${n.saldo ? brl(n.saldo) : "—"}</b></td>
+      <td>${n.prazo ? dataBR(n.prazo) + ` <span class="${d < 0 ? "neg" : "muted"}">(${d < 0 ? "vencido" : d + " d"})</span>` : "—"}${n.trava ? " · trava" : ""}</td>
+      <td style="white-space:normal">${esc(n.desc)}</td></tr>`;
+  }).join("");
+  const prova = `Bruto ${brl(c.bruto)} − Anulações ${brl(c.anul)} − Concedido ${brl(c.conc)} ${c.det >= 0 ? "+" : "−"} Detalh. ${brl(Math.abs(c.det))} − Empenhado ${brl(c.emp)}${c.pre !== null ? " − Pré-emp. " + brl(c.pre) : ""}${c.bloq !== null ? " − Bloq. " + brl(c.bloq) : ""}
+= ${brl(c.calc)}  |  SIAFI: ${brl(c.saldo)}  |  ${c.div ? "DIVERGÊNCIA " + brl(c.div) : "conciliado ✓"}
+Liquidado ${brl(c.liq)} · Pago ${brl(c.pag)}${c.sem_nc ? " · Saldo sem NC identificada: " + brl(c.sem_nc) : ""}`;
+  return `<tr class="detail"><td colspan="12">
+    <div class="formula">${esc(prova)}</div>
+    ${c.motivos.length ? `<p><b>Motivos do status:</b> ${esc(c.motivos.join("; "))}</p>` : ""}
+    ${c.ncs.length ? `<div class="tbl-wrap"><table><thead><tr><th>NC</th><th>Emissão</th><th>Emitente</th><th>Operação</th><th class="num">Valor</th><th class="num">Saldo atribuído</th><th>Prazo</th><th>Objeto</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="muted">Célula sem NC no export (saldo de exercícios/lançamentos anteriores).</p>'}
+  </td></tr>`;
+}
+
+/* ---------- Gráficos (barras horizontais, sem dependências) ---------- */
+function barras(el, pares) {
+  const max = Math.max(...pares.map(p => Math.abs(p[1])), 1);
+  $(el).innerHTML = pares.length ? pares.map(([rot, v]) =>
+    `<div class="hbar"><span title="${esc(rot)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(rot)}</span>
+      <div class="track"><span style="width:${Math.max(Math.abs(v)/max*100, v ? 1 : 0)}%;${v < 0 ? "background:var(--crit)" : ""}"></span></div>
+      <span class="num ${v < 0 ? "neg" : ""}" style="font-variant-numeric:tabular-nums">${brl(v)}</span></div>`).join("")
+    : '<div class="empty">Sem saldo a exibir.</div>';
+}
+function graficos(cs) {
+  barras("graficoUg", agrupar(cs, GRUPOS.ug[0], GRUPOS.ug[1]).filter(g => g.saldo).sort((a,b) => b.saldo - a.saldo).map(g => [g.rot, g.saldo]));
+  barras("graficoNd", agrupar(cs, GRUPOS.nd[0], GRUPOS.nd[1]).filter(g => g.saldo).sort((a,b) => b.saldo - a.saldo).map(g => [g.rot, g.saldo]));
+}
+
+/* ---------- Alertas ---------- */
+function renderAlertas() {
+  const as = D.alertas.filter(a => !S.sev || a.sev === S.sev);
+  $("alertas").innerHTML = as.length ? as.map(a => `<div class="alerta ${a.sev}">
+      <b><span class="st st-${a.sev}">${a.sev}</span> ${esc(a.titulo)}${a.valor !== null ? " · " + brl(a.valor) : ""}</b>
+      ${esc(a.detalhe)}<br><small>${esc(a.cat)}${a.ug ? " · UG " + esc(a.ug) : ""}${a.ref ? " · " + esc(a.ref) : ""}</small></div>`).join("")
+    : '<div class="empty">Nenhum alerta nesta categoria.</div>';
+}
+
+/* ---------- RP ---------- */
+function renderRp() {
+  const t = $("tabelaRp");
+  if (!D.rp.length) { t.innerHTML = '<tbody><tr><td class="empty">Sem restos a pagar da operação nas fontes carregadas.</td></tr></tbody>'; return; }
+  const rows = [...D.rp].sort((a,b) => b.a_liq - a.a_liq);
+  t.innerHTML = `<thead><tr><th>UG</th><th>Ação · PI</th><th>ND</th><th class="num">Inscrito</th><th class="num">Cancelado</th><th class="num">Liquidado</th><th class="num">Pago</th><th class="num">A liquidar</th><th class="num">Liquidado a pagar</th><th class="num">Reportado (export)</th></tr></thead>
+  <tbody>${rows.map(r => `<tr><td>${esc(r.ug)} <span class="muted">${esc(r.ug_nome)}</span></td><td title="${esc(r.pi_nome)}">${esc(r.acao)} · ${esc(r.pi)}</td><td>${esc(r.nd)}</td>
+    <td class="num">${brl(r.insc)}</td><td class="num">${brl(r.canc)}</td><td class="num">${brl(r.liq)}</td><td class="num">${brl(r.pag)}</td>
+    <td class="num"><b>${brl(r.a_liq)}</b></td><td class="num">${brl(r.liq_a_pagar)}</td><td class="num muted">${brl(r.a_liq_rep)}</td></tr>`).join("")}</tbody>
+  <tfoot><tr><td colspan="3">Total</td>${["insc","canc","liq","pag","a_liq","liq_a_pagar","a_liq_rep"].map(k => `<td class="num">${brl(soma(rows,k))}</td>`).join("")}</tr></tfoot>`;
+}
+
+/* ---------- CSV ---------- */
+$("csv").onclick = () => {
+  const cs = filtradas();
+  const n = v => v === null ? "" : (v/100).toFixed(2).replace(".", ",");
+  const cab = ["UG","UG nome","Ação","PTRES","PI","PI nome","Fonte","ND","ND nome","NCs com saldo","Crédito bruto","Anulações","Concedido","Detalhamento","Empenhado","Bloqueado","Saldo SIAFI","Saldo calculado","Divergência","Status","Motivos"];
+  const linhas = cs.map(c => [c.ug,c.ug_nome,c.acao,c.ptres,c.pi,c.pi_nome,c.fonte_rec,c.nd,c.nd_nome,
+    c.ncs.filter(x => x.saldo > 0).map(x => x.nc).join(" "),n(c.bruto),n(c.anul),n(c.conc),n(c.det),n(c.emp),n(c.bloq),n(c.saldo),n(c.calc),n(c.div),c.status,c.motivos.join(" | ")]);
+  const csv = [cab, ...linhas].map(l => l.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], {type: "text/csv;charset=utf-8"}));
+  a.download = `credito_disponivel_${D.meta.data_referencia}.csv`;
+  a.click();
+};
+
+/* ---------- Eventos ---------- */
+["fUg","fPi","fNd","fFonte","fSt","fSaldo"].forEach(id => $(id).addEventListener("change", renderTabela));
+$("fQ").addEventListener("input", renderTabela);
+document.querySelectorAll("[data-g]").forEach(b => b.onclick = () => {
+  S.grupo = b.dataset.g; S.sortKey = "saldo"; S.sortDir = -1;
+  document.querySelectorAll("[data-g]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  renderTabela();
+});
+document.querySelectorAll("[data-sev]").forEach(b => b.onclick = () => {
+  S.sev = b.dataset.sev;
+  document.querySelectorAll("[data-sev]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  renderAlertas();
+});
+$("tabela").addEventListener("click", e => {
+  const h = e.target.closest("th[data-k]");
+  if (h) { const k = h.dataset.k; S.sortDir = S.sortKey === k ? -S.sortDir : (["ug","pi","nd","rot","nc","status","fonte_rec","op","emit","data","prazo"].includes(k) ? 1 : -1); S.sortKey = k; renderTabela(); return; }
+  const r = e.target.closest("tr.row");
+  if (r) { const id = +r.dataset.id; S.aberto.has(id) ? S.aberto.delete(id) : S.aberto.add(id); renderTabela(); }
+});
+$("tabela").addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const alvo = e.target.closest("th[data-k], tr.row");
+  if (alvo) { e.preventDefault(); alvo.click(); }
+});
+
+renderTabela(); renderAlertas(); renderRp();
+</script>
+</body>
+</html>
