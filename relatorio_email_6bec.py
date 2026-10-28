@@ -118,7 +118,9 @@ def _dt_br(s):
 def fmt_brl(v):
     if v is None:
         return "R$ 0,00"
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    val = 0.0 if abs(float(v)) < 0.005 else float(v)
+    s = f"{abs(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"-R$ {s}" if val < 0 else f"R$ {s}"
 
 
 def fmt_pct(v):

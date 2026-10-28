@@ -43,7 +43,8 @@ button:focus-visible,select:focus-visible,input:focus-visible,tr:focus-visible{o
 .bar>span{display:block;height:100%;background:var(--accent)}
 .fontes{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
-.filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;scrollbar-width:none;-ms-overflow-style:none}
+.filtros::-webkit-scrollbar,.tabs::-webkit-scrollbar{display:none}
 .filtros label{font-size:12px;color:var(--ink-2);display:flex;flex-direction:column;gap:2px}
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -72,7 +73,7 @@ tfoot td{font-weight:650;background:var(--surface-2)}
 .hbar .track span{display:block;height:100%;background:var(--accent)}
 .empty{padding:24px;text-align:center;color:var(--ink-2)}
 .pend li{margin-bottom:6px}
-.tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;scrollbar-width:none;-ms-overflow-style:none}
 .tabs button[aria-pressed="true"]{background:var(--accent);color:var(--surface);border-color:var(--accent)}
 .max-h{max-height:520px;overflow:auto}
 @media print{.filtros,.tabs,#tema,#csv{display:none}.max-h{max-height:none}}
@@ -173,7 +174,7 @@ tfoot td{font-weight:650;background:var(--surface-2)}
 "use strict";
 const D = JSON.parse(document.getElementById("dados").textContent);
 const fmt = new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
-const brl = c => c === null || c === undefined ? "n/d" : fmt.format(c/100);
+const brl = c => c === null || c === undefined ? "n/d" : fmt.format(Math.abs(c) < 0.5 ? 0 : c/100);
 const dataBR = s => s ? s.split("-").reverse().join("/") : "—";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const hoje = new Date(D.meta.data_referencia + "T00:00:00");

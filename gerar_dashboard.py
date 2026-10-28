@@ -849,18 +849,22 @@ def atualizar_historico(res, data_str, catr=None, histfile=None):
 
 # ---------------- formatação ----------------
 def _fmt(v):
+    v = 0.0 if abs(v or 0.0) < 0.005 else float(v)
     s = f"{abs(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return s
 
 def brl(v):
+    v = 0.0 if abs(v or 0.0) < 0.005 else float(v)
     return ("−R$ " if v < 0 else "R$ ") + _fmt(v)
 
 def num(v):
+    v = 0.0 if abs(v or 0.0) < 0.005 else float(v)
     return ("−" if v < 0 else "") + _fmt(v)
 
 def pct(a, b): return (100.0 * a / b) if b else 0.0
 
 def abrev(v):
+    v = 0.0 if abs(v or 0.0) < 0.005 else float(v)
     a = abs(v); s = "−" if v < 0 else ""
     if a >= 1e6: return s + f"{a/1e6:.1f}".replace(".", ",") + " mi"
     if a >= 1e3: return s + f"{a/1e3:.0f} mil"
@@ -3628,7 +3632,11 @@ h1 {
   gap: 10px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.omds-nav-in::-webkit-scrollbar, .tabs::-webkit-scrollbar, .toptabs::-webkit-scrollbar {
+  display: none;
 }
 .omds {
   flex: none;
@@ -3914,6 +3922,8 @@ h1 {
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
   overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .tab {
   background: none;
@@ -4002,6 +4012,7 @@ table.tbl, table.det, table.tbl-hist {
   min-width: 680px;
   font-size: 0.75rem;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 table.tbl th, table.det th, table.tbl-hist th {

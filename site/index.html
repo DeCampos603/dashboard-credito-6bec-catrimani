@@ -537,7 +537,11 @@ h1 {
   gap: 10px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.omds-nav-in::-webkit-scrollbar, .tabs::-webkit-scrollbar, .toptabs::-webkit-scrollbar {
+  display: none;
 }
 .omds {
   flex: none;
@@ -815,6 +819,8 @@ h1 {
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
   overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .tab {
   background: none;
@@ -903,6 +909,7 @@ table.tbl, table.det, table.tbl-hist {
   min-width: 680px;
   font-size: 0.75rem;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 table.tbl th, table.det th, table.tbl-hist th {
